@@ -22,8 +22,4 @@
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.18" Condition="'$(Configuration)' == 'Debug'" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="..\..\tools\.gitkeep" Link="tools\.gitkeep" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\tools\rclone.exe" Link="tools\rclone.exe" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\tools\rclone.exe')" />
-  </ItemGroup>
 </Project>

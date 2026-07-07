@@ -18,7 +18,7 @@ It is not meant to mirror an entire drive. The app is built around a work sessio
 - Basic conflict/error window and logs
 - Single-instance guard
 - Optional Windows scheduled task entry point via `--auto`
-- Bundled-rclone support, with native file-system fallback for development/local SMB paths
+- Optional rclone backend path, with native file-system fallback for development/local SMB paths
 
 ## Repository Layout
 
@@ -31,7 +31,7 @@ src/PathTwin.App/Models/       config/session/sync data models
 tools/iconprocessor/           local tool for regenerating app icons
 assets/icon-source.png         original icon source image
 icon.png                       final 1000x1000 transparent PNG icon
-tools/rclone.exe               optional local binary, ignored by Git
+tools/rclone.exe               optional local binary, ignored by Git and not packaged by default
 ```
 
 ## Build
@@ -52,27 +52,30 @@ dotnet build src/PathTwin.App/PathTwin.App.csproj
 dotnet run --project src/PathTwin.App/PathTwin.App.csproj
 ```
 
+## rclone
+
+PathTwin does not bundle `rclone.exe` in the public release package. Users who want to use rclone can download it from the official rclone downloads page and choose the executable path in Settings:
+
+- https://rclone.org/downloads/
+
+rclone's own downloads page describes rclone as a single executable, `rclone.exe` on Windows, distributed as a zip archive that can be extracted anywhere.
+
 ## Publish Windows Standalone
-
-Place `rclone.exe` at `tools/rclone.exe` before publishing if the release should include rclone. The file is intentionally ignored by Git.
-
-```powershell
-dotnet publish src/PathTwin.App/PathTwin.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o publish/win-x64
-```
-
-The publish output is ignored by Git and should be treated as a release artifact, not source.
-
-For the packaged release zip with notices included:
 
 ```powershell
 scripts/package-release.ps1 -Version 0.1.0
 ```
 
+The release script creates standalone, self-contained executables that do not require adjacent DLL files:
+
+- `artifacts/PathTwin-0.1.0-win-x64.exe`: versioned release executable
+- `artifacts/PathTwin-latest-win-x64.exe`: stable latest executable name
+
 ## License
 
 PathTwin is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
 
-Binary releases may bundle rclone as a separate third-party executable. rclone is MIT licensed; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+PathTwin can use rclone as an optional external tool, but the public release package does not redistribute `rclone.exe`. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Documentation
 

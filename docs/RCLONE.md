@@ -1,31 +1,28 @@
-# rclone Binary Policy
+# rclone Policy
 
-PathTwin supports a bundled rclone executable at:
+PathTwin can use rclone as an optional external executable. The public source repository and release executables do not include `rclone.exe`.
 
-```text
-tools/rclone.exe
-```
+Official rclone downloads:
 
-That file is intentionally ignored by Git. Keep the source repository lightweight and avoid committing third-party binaries directly.
+- https://rclone.org/downloads/
 
 ## Development
 
 For local development, either:
 
-- Place `rclone.exe` at `tools/rclone.exe`, or
+- Download rclone and set its path in the app Settings, or
 - Leave it absent and use the native file-system fallback for local/SMB-style paths.
 
-The app default path is centralized in `AppConstants.DefaultRclonePath`.
+`tools/rclone.exe` remains ignored by Git so developers may keep a local copy there, but official package scripts do not include it.
 
 ## Publishing
 
-Before publishing a release that should include rclone:
+The release package intentionally excludes rclone:
 
-1. Download rclone for Windows x64 from the official rclone distribution.
-2. Put the executable at `tools/rclone.exe`.
-3. Run the publish command from the README.
-
-The project file copies `tools/rclone.exe` into the published app folder when the file exists.
+- Smaller artifact
+- No third-party executable redistribution
+- Users can update rclone independently
+- The app remains clear about which binary is maintained by which project
 
 ## GitHub Notes
 
@@ -35,6 +32,4 @@ Do not commit:
 - rclone zip files
 - extracted rclone folders
 
-For a public release, include rclone licensing/notice information in the packaged artifact.
-
-This repository includes a copy of rclone's license text at `third_party/rclone/COPYING` for packaging notices. The rclone executable itself stays ignored by Git.
+Release assets should contain PathTwin only. Link users to the official rclone download page instead of bundling `rclone.exe`.

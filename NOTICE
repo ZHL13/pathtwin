@@ -3,6 +3,5 @@ Copyright 2026 PathTwin contributors
 
 PathTwin is licensed under the Apache License, Version 2.0.
 
-Binary releases may bundle rclone, which is a separate third-party project
-licensed under the MIT License. See THIRD_PARTY_NOTICES.md and
-third_party/rclone/COPYING.
+PathTwin can integrate with rclone as an optional external executable. Public
+release packages do not redistribute rclone.exe. See THIRD_PARTY_NOTICES.md.

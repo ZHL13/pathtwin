@@ -18,7 +18,7 @@ Expected ignored local artifacts:
 - `*.pdb`
 - logs and temporary files
 
-The repository currently expects source files, docs, icons, and the icon source to be committed. Build outputs and third-party executables should stay out of Git.
+The repository expects source files, docs, icons, and the icon source to be committed. Build outputs and third-party executables should stay out of Git. GitHub/GitLab release pages provide source archives automatically, so do not build or upload a separate source zip.
 
 ## Remote Setup
 
@@ -45,7 +45,7 @@ dotnet run --project tools/iconprocessor/IconProcessor/IconProcessor.csproj
 
 ## Publish
 
-Place `rclone.exe` at `tools/rclone.exe` first if it should be included in the release package.
+The public release package does not include `rclone.exe`.
 
 ```powershell
 scripts/package-release.ps1 -Version 0.1.0
@@ -53,14 +53,19 @@ scripts/package-release.ps1 -Version 0.1.0
 
 Confirm:
 
-- `publish/win-x64/PathTwin.App.exe` exists.
-- `publish/win-x64/tools/rclone.exe` exists when bundling rclone.
-- `artifacts/PathTwin-0.1.0-win-x64.zip` exists.
+- `artifacts/PathTwin-0.1.0-win-x64.exe` exists.
+- `artifacts/PathTwin-latest-win-x64.exe` exists.
+- The single-file exe runs without adjacent DLL files.
 - The app starts and shows the setup/profile screen.
 - Logs open from the UI.
 
 ## Release Artifact
 
-Upload `artifacts/PathTwin-0.1.0-win-x64.zip`. Do not commit `publish/` or `artifacts/`.
+Upload both release assets:
 
-If rclone is bundled, include `THIRD_PARTY_NOTICES.md` and `third_party/rclone/COPYING` in the release artifact.
+- `artifacts/PathTwin-0.1.0-win-x64.exe`
+- `artifacts/PathTwin-latest-win-x64.exe`
+
+Do not commit `publish/` or `artifacts/`.
+
+Do not upload `tools/rclone.exe`. Link users to https://rclone.org/downloads/ instead.

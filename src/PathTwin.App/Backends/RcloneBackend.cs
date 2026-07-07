@@ -78,7 +78,7 @@ public sealed class RcloneBackend : ISyncBackend
     {
         if (!IsAvailable)
         {
-            throw new FileNotFoundException("Bundled rclone executable was not found.", _rclonePath);
+            throw new FileNotFoundException("Configured rclone executable was not found.", _rclonePath);
         }
 
         if (!string.IsNullOrWhiteSpace(logPath))
