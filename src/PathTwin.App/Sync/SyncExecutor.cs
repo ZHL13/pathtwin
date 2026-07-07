@@ -18,15 +18,26 @@ public sealed class SyncExecutor
         WorkSession session,
         string historyRoot,
         string logPath,
+        IProgress<SyncProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(historyRoot);
 
-        foreach (var operation in plan.Operations.Where(operation => operation.Kind != SyncOperationKind.Skip))
+        var operations = plan.Operations.Where(o => o.Kind != SyncOperationKind.Skip).ToList();
+        var completed = 0;
+        foreach (var operation in operations)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var remotePath = PathSafety.CombineRootAndRelative(session.RemoteRoot, operation.RelativePath);
             var localPath = PathSafety.CombineRootAndRelative(session.LocalRoot, operation.RelativePath);
+
+            progress?.Report(new SyncProgress
+            {
+                Phase = $"Syncing ({completed + 1}/{operations.Count})",
+                Detail = operation.RelativePath,
+                Completed = completed,
+                Total = operations.Count
+            });
 
             switch (operation.Kind)
             {
@@ -42,6 +53,8 @@ public sealed class SyncExecutor
                 default:
                     throw new ArgumentOutOfRangeException(nameof(operation.Kind), operation.Kind, "Unsupported sync operation.");
             }
+
+            completed++;
         }
     }
 

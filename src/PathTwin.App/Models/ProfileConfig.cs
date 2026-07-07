@@ -23,6 +23,7 @@ public sealed class ProfileConfig
     public bool StartOnUnlock { get; set; } = true;
     public bool StartOnLogon { get; set; } = true;
     public bool SingleInstanceMode { get; set; } = true;
+    public List<string> LastSelectedPaths { get; set; } = [];
 
     public static ProfileConfig CreateDefault() => new();
 }

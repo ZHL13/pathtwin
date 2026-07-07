@@ -25,7 +25,7 @@ PathTwin is organized as a small Avalonia app with explicit service boundaries. 
 4. Scan selected remote files into the session manifest.
 5. Optionally create the local directory skeleton.
 6. Pull selected folders from remote root to local root while preserving relative paths.
-7. Save the session JSON under `<localRoot>.pfs\sessions`.
+7. Save the session JSON under `<localRoot>.pt\sessions`.
 
 ### End Work Session
 

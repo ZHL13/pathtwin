@@ -23,6 +23,10 @@ public sealed class MainWindowViewModel : ViewModelBase
     private bool _isBusy;
     private string _statusText = "Loading";
     private string _currentOperation = string.Empty;
+    private string _progressDetail = string.Empty;
+    private int _progressCompleted;
+    private int _progressTotal;
+    private bool _isProgressIndeterminate = true;
     private string _remoteRoot = string.Empty;
     private string _localRoot = string.Empty;
     private string _historyRoot = string.Empty;
@@ -173,6 +177,30 @@ public sealed class MainWindowViewModel : ViewModelBase
         private set => SetProperty(ref _currentOperation, value);
     }
 
+    public string ProgressDetail
+    {
+        get => _progressDetail;
+        private set => SetProperty(ref _progressDetail, value);
+    }
+
+    public int ProgressCompleted
+    {
+        get => _progressCompleted;
+        private set => SetProperty(ref _progressCompleted, value);
+    }
+
+    public int ProgressTotal
+    {
+        get => _progressTotal;
+        private set => SetProperty(ref _progressTotal, value);
+    }
+
+    public bool IsProgressIndeterminate
+    {
+        get => _isProgressIndeterminate;
+        private set => SetProperty(ref _isProgressIndeterminate, value);
+    }
+
     public string RemoteRoot
     {
         get => _remoteRoot;
@@ -297,13 +325,14 @@ public sealed class MainWindowViewModel : ViewModelBase
     public void SetRemoteRootFromPicker(string path)
     {
         RemoteRoot = path;
-        if (string.IsNullOrWhiteSpace(HistoryRoot) && !string.IsNullOrWhiteSpace(path))
-        {
-            HistoryRoot = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + "_History";
-        }
     }
 
-    public void SetLocalRootFromPicker(string path) => LocalRoot = path;
+    public void SetLocalRootFromPicker(string path)
+    {
+        LocalRoot = path;
+        LogRoot = Path.Combine(path + AppConstants.LocalMetadataDirName, "logs");
+        HistoryRoot = Path.Combine(path + AppConstants.LocalMetadataDirName, "history");
+    }
     public void SetHistoryRootFromPicker(string path) => HistoryRoot = path;
     public void SetLogRootFromPicker(string path) => LogRoot = path;
 
@@ -379,10 +408,20 @@ public sealed class MainWindowViewModel : ViewModelBase
             DirectoryTree.Clear();
             SelectedPaths.Clear();
 
+            var restoredPaths = new HashSet<string>(
+                _config.ActiveProfile.LastSelectedPaths.Select(PathSafety.NormalizeRelativePath),
+                StringComparer.OrdinalIgnoreCase);
+            IReadOnlySet<string>? restoredPathSet = restoredPaths.Count > 0 ? restoredPaths : null;
             var nodes = await _directoryTreeService.LoadAsync(RemoteRoot);
             foreach (var node in nodes)
             {
-                DirectoryTree.Add(new DirectoryNodeViewModel(node, parent: null, RefreshSelectedPaths, _directoryTreeService, RemoteRoot));
+                DirectoryTree.Add(new DirectoryNodeViewModel(
+                    node,
+                    parent: null,
+                    RefreshSelectedPaths,
+                    _directoryTreeService,
+                    RemoteRoot,
+                    restoredPathSet));
             }
 
             StatusText = $"Loaded {DirectoryTree.Count} top-level folders";
@@ -429,12 +468,30 @@ public sealed class MainWindowViewModel : ViewModelBase
             IsBusy = true;
             State = MainViewState.SyncRunning;
             CurrentOperation = "Starting work session";
+            ProgressDetail = "";
+            ProgressCompleted = 0;
+            ProgressTotal = 0;
+            IsProgressIndeterminate = true;
+
+            var progress = new Progress<SyncProgress>(p =>
+            {
+                CurrentOperation = p.Phase;
+                ProgressDetail = p.Detail;
+                ProgressCompleted = p.Completed;
+                ProgressTotal = p.Total;
+                IsProgressIndeterminate = p.IsIndeterminate;
+            });
+
             var profile = CaptureProfile();
-            var result = await _sessionService.StartAsync(profile, SelectedPaths.ToArray());
+            var result = await _sessionService.StartAsync(profile, SelectedPaths.ToArray(), progress);
             ActiveSession = result.Session;
             State = MainViewState.SessionActive;
             StatusText = result.Message;
             AddActivity(result.Message);
+
+            // Remember selections for next time
+            _config.ActiveProfile.LastSelectedPaths = SelectedPaths.ToList();
+            _ = _configService.SaveAsync(_config);
         }
         catch (Exception exception)
         {
@@ -459,8 +516,22 @@ public sealed class MainWindowViewModel : ViewModelBase
             IsBusy = true;
             State = MainViewState.SyncRunning;
             CurrentOperation = "Ending work session";
+            ProgressDetail = "";
+            ProgressCompleted = 0;
+            ProgressTotal = 0;
+            IsProgressIndeterminate = true;
+
+            var progress = new Progress<SyncProgress>(p =>
+            {
+                CurrentOperation = p.Phase;
+                ProgressDetail = p.Detail;
+                ProgressCompleted = p.Completed;
+                ProgressTotal = p.Total;
+                IsProgressIndeterminate = p.IsIndeterminate;
+            });
+
             var profile = CaptureProfile();
-            var result = await _sessionService.EndAsync(ActiveSession, profile);
+            var result = await _sessionService.EndAsync(ActiveSession, profile, progress);
             if (!result.Succeeded)
             {
                 State = MainViewState.Error;

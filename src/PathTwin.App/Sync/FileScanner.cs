@@ -11,6 +11,7 @@ public sealed class FileScanner
         string root,
         IReadOnlyCollection<string> selectedRelativePaths,
         bool computeHashes,
+        IProgress<SyncProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         var states = new Dictionary<string, FileState>(StringComparer.OrdinalIgnoreCase);
@@ -18,6 +19,7 @@ public sealed class FileScanner
             ? new[] { string.Empty }
             : selectedRelativePaths;
 
+        var scanned = 0;
         foreach (var selectedPath in scanRoots)
         {
             var normalizedSelection = PathSafety.NormalizeRelativePath(selectedPath);
@@ -46,6 +48,12 @@ public sealed class FileScanner
                     continue;
                 }
 
+                scanned++;
+                if (progress is not null)
+                {
+                    progress.Report(new SyncProgress { Phase = $"Synchronizing files ({scanned} scanned)", Detail = relative });
+                }
+
                 var info = new FileInfo(file);
                 states[relative] = new FileState
                 {
@@ -57,6 +65,7 @@ public sealed class FileScanner
             }
         }
 
+        progress?.Report(new SyncProgress { Phase = $"Synchronizing files ({scanned} scanned)", Detail = "done" });
         return states.Values.OrderBy(state => state.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 

@@ -10,6 +10,8 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
     private readonly Action _selectionChanged;
     private readonly DirectoryTreeService? _treeService;
     private readonly string? _remoteRoot;
+    private readonly IReadOnlySet<string>? _restoredSelectedPaths;
+    private bool _restoredSelectedPathsActive;
     private bool? _isChecked = false;
     private bool _isExpanded;
     private bool _childrenLoaded;
@@ -21,7 +23,8 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         DirectoryNodeViewModel? parent,
         Action selectionChanged,
         DirectoryTreeService? treeService = null,
-        string? remoteRoot = null)
+        string? remoteRoot = null,
+        IReadOnlySet<string>? restoredSelectedPaths = null)
     {
         Name = node.Name;
         RelativePath = node.RelativePath;
@@ -31,6 +34,8 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         _selectionChanged = selectionChanged;
         _treeService = treeService;
         _remoteRoot = remoteRoot;
+        _restoredSelectedPaths = restoredSelectedPaths;
+        _restoredSelectedPathsActive = IsSelectable && restoredSelectedPaths is not null;
         _childrenLoaded = !node.HasChildren || node.IsLimitNotice;
 
         if (node.HasChildren && node.Children.Count == 0)
@@ -43,8 +48,16 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         else
         {
             Children = new ObservableCollection<DirectoryNodeViewModel>(
-                node.Children.Select(child => new DirectoryNodeViewModel(child, this, selectionChanged, treeService, remoteRoot)));
+                node.Children.Select(child => new DirectoryNodeViewModel(
+                    child,
+                    this,
+                    selectionChanged,
+                    treeService,
+                    remoteRoot,
+                    restoredSelectedPaths)));
         }
+
+        ApplyRestoredSelectionState();
     }
 
     public string Name { get; }
@@ -78,7 +91,10 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
             if (effectiveValue == null)
                 effectiveValue = false;
 
+            var clearedRestoredSelections = ClearRestoredSelectionsForSubtree();
             SetChecked(effectiveValue, updateChildren: true, updateParent: true);
+            if (clearedRestoredSelections && !_suppressSelectionChanged)
+                _selectionChanged();
         }
     }
 
@@ -95,6 +111,16 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
 
         if (parentSelected)
             return;
+
+        if (IsChecked is null && !_childrenLoaded && _restoredSelectedPathsActive && _restoredSelectedPaths is not null)
+        {
+            foreach (var path in _restoredSelectedPaths.Where(IsDescendantPath))
+            {
+                selectedPaths.Add(path);
+            }
+
+            return;
+        }
 
         foreach (var child in Children)
         {
@@ -120,7 +146,13 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
                 Children.Clear();
                 foreach (var child in nodes)
                 {
-                    var childViewModel = new DirectoryNodeViewModel(child, this, _selectionChanged, _treeService, _remoteRoot);
+                    var childViewModel = new DirectoryNodeViewModel(
+                        child,
+                        this,
+                        _selectionChanged,
+                        _treeService,
+                        _remoteRoot,
+                        _restoredSelectedPathsActive ? _restoredSelectedPaths : null);
                     Children.Add(childViewModel);
                     if (IsChecked == true && childViewModel.IsSelectable)
                     {
@@ -198,7 +230,7 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
             return;
 
         var allChecked = selectableChildren.All(child => child.IsChecked == true);
-        var allUnchecked = selectableChildren.All(child => child.IsChecked != true);
+        var allUnchecked = selectableChildren.All(child => child.IsChecked == false);
 
         bool? aggregate;
         if (allChecked)
@@ -217,5 +249,43 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         {
             _suppressSelectionChanged = false;
         }
+    }
+
+    private void ApplyRestoredSelectionState()
+    {
+        if (!_restoredSelectedPathsActive || _restoredSelectedPaths is null)
+            return;
+
+        if (_restoredSelectedPaths.Contains(RelativePath))
+        {
+            _isChecked = true;
+            return;
+        }
+
+        if (_restoredSelectedPaths.Any(IsDescendantPath))
+        {
+            _isChecked = null;
+        }
+    }
+
+    private bool IsDescendantPath(string candidate)
+    {
+        if (string.IsNullOrEmpty(RelativePath))
+            return false;
+
+        return candidate.StartsWith(RelativePath + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool ClearRestoredSelectionsForSubtree()
+    {
+        var cleared = _restoredSelectedPathsActive;
+        _restoredSelectedPathsActive = false;
+
+        foreach (var child in Children)
+        {
+            cleared |= child.ClearRestoredSelectionsForSubtree();
+        }
+
+        return cleared;
     }
 }

@@ -18,7 +18,7 @@ Expected ignored local artifacts:
 - `*.pdb`
 - logs and temporary files
 
-The repository expects source files, docs, icons, and the icon source to be committed. Build outputs and third-party executables should stay out of Git. GitHub/GitLab release pages provide source archives automatically, so do not build or upload a separate source zip.
+The repository expects source files, docs, icons, and the icon source to be committed. Build outputs and third-party executables should stay out of Git. GitHub release pages provide source archives automatically, so do not build or upload a separate source zip.
 
 ## Remote Setup
 
@@ -48,12 +48,12 @@ dotnet run --project tools/iconprocessor/IconProcessor/IconProcessor.csproj
 The public release package does not include `rclone.exe`.
 
 ```powershell
-scripts/package-release.ps1 -Version 0.1.2
+scripts/package-release.ps1 -Version 0.1.3
 ```
 
 Confirm:
 
-- `artifacts/PathTwin-0.1.2-win-x64.exe` exists.
+- `artifacts/PathTwin-0.1.3-win-x64.exe` exists.
 - `artifacts/PathTwin-latest-win-x64.exe` exists.
 - The single-file exe runs without adjacent DLL files.
 - The app starts and shows the setup/profile screen.
@@ -63,7 +63,7 @@ Confirm:
 
 Upload both release assets:
 
-- `artifacts/PathTwin-0.1.2-win-x64.exe`
+- `artifacts/PathTwin-0.1.3-win-x64.exe`
 - `artifacts/PathTwin-latest-win-x64.exe`
 
 Do not commit `publish/` or `artifacts/`.

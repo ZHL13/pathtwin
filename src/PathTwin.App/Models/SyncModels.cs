@@ -63,3 +63,12 @@ public sealed class ErrorReportItem
     public string Path { get; init; } = string.Empty;
     public string Details { get; init; } = string.Empty;
 }
+
+public sealed class SyncProgress
+{
+    public string Phase { get; init; } = string.Empty;
+    public string Detail { get; init; } = string.Empty;
+    public int Completed { get; init; }
+    public int Total { get; init; }
+    public bool IsIndeterminate => Total == 0;
+}

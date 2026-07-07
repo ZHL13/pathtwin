@@ -66,6 +66,7 @@ public sealed class WorkSessionService
     public async Task<WorkSessionStartResult> StartAsync(
         ProfileConfig profile,
         IReadOnlyCollection<string> selectedPaths,
+        IProgress<SyncProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         PrepareProfileDefaults(profile);
@@ -98,22 +99,28 @@ public sealed class WorkSessionService
         await _logService.WriteSessionHeaderAsync(session.PullLogPath, session, "Start Work Session / Pull", cancellationToken);
         await _logService.WriteSessionHeaderAsync(session.AppLogPath, session, "App", cancellationToken);
 
+        progress?.Report(new SyncProgress { Phase = "Synchronizing remote for manifest", Detail = $"{normalized.Count} folder(s)", Completed = 0, Total = 0 });
         session.Manifest = new SessionManifest
         {
             SessionId = session.SessionId,
             CapturedAt = DateTimeOffset.Now,
-            RemoteFilesAtPull = [.. await _fileScanner.ScanAsync(profile.RemoteRoot, normalized, computeHashes: true, cancellationToken)]
+            RemoteFilesAtPull = [.. await _fileScanner.ScanAsync(profile.RemoteRoot, normalized, computeHashes: true, progress, cancellationToken)]
         };
 
         if (profile.PreserveDirectorySkeleton)
         {
-            await CreateDirectorySkeletonAsync(profile.RemoteRoot, profile.LocalRoot, session.AppLogPath, cancellationToken);
+            progress?.Report(new SyncProgress { Phase = "Synchronizing directory skeleton", Detail = "Enumerating remote directories...", Completed = 0, Total = 0 });
+            await Task.Run(() => CreateDirectorySkeletonAsync(profile.RemoteRoot, profile.LocalRoot, session.AppLogPath, progress, cancellationToken), cancellationToken);
         }
 
         var backend = _backendFactory.Create(profile);
         await _logService.AppendAsync(session.PullLogPath, $"Pull backend: {backend.Name}", cancellationToken);
+
+        var i = 0;
         foreach (var relativePath in normalized)
         {
+            i++;
+            progress?.Report(new SyncProgress { Phase = $"Pulling folder ({i}/{normalized.Count})", Detail = relativePath, Completed = i - 1, Total = normalized.Count });
             var source = PathSafety.CombineRootAndRelative(profile.RemoteRoot, relativePath);
             var destination = PathSafety.CombineRootAndRelative(profile.LocalRoot, relativePath);
             var options = new SyncBackendOptions
@@ -144,6 +151,7 @@ public sealed class WorkSessionService
     public async Task<WorkSessionEndResult> EndAsync(
         WorkSession session,
         ProfileConfig profile,
+        IProgress<SyncProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         PrepareProfileDefaults(profile);
@@ -152,12 +160,19 @@ public sealed class WorkSessionService
         await _logService.WriteSessionHeaderAsync(session.PushLogPath, session, "End Work Session / Push", cancellationToken);
 
         var baseFiles = session.Manifest.RemoteFilesAtPull;
-        var localFiles = await _fileScanner.ScanAsync(session.LocalRoot, session.SelectedPaths, computeHashes: true, cancellationToken);
-        var remoteFiles = await _fileScanner.ScanAsync(session.RemoteRoot, session.SelectedPaths, computeHashes: true, cancellationToken);
+
+        progress?.Report(new SyncProgress { Phase = "Synchronizing selected local folders", Detail = "", Completed = 0, Total = 0 });
+        var localFiles = await _fileScanner.ScanAsync(session.LocalRoot, session.SelectedPaths, computeHashes: true, progress, cancellationToken);
+
+        progress?.Report(new SyncProgress { Phase = "Synchronizing selected remote folders", Detail = "", Completed = 0, Total = 0 });
+        var remoteFiles = await _fileScanner.ScanAsync(session.RemoteRoot, session.SelectedPaths, computeHashes: true, progress, cancellationToken);
+
+        progress?.Report(new SyncProgress { Phase = "Building sync plan", Detail = $"Synchronizing {localFiles.Count} local vs {remoteFiles.Count} remote files", Completed = 0, Total = 0 });
         var plan = _planner.CreatePlan(baseFiles, localFiles, remoteFiles);
 
         // Handle unselected skeleton directories: upload new local files only (no deletions, no change detection)
-        await AppendUnselectedUploadsAsync(plan, session, cancellationToken);
+        progress?.Report(new SyncProgress { Phase = "Checking unselected folders for new files", Detail = "", Completed = 0, Total = 0 });
+        await AppendUnselectedUploadsAsync(plan, session, progress, cancellationToken);
 
         await _logService.WritePlanSummaryAsync(session.PushLogPath, plan, cancellationToken);
 
@@ -172,7 +187,8 @@ public sealed class WorkSessionService
             };
         }
 
-        await _executor.ExecuteAsync(plan, session, session.HistoryRoot, session.PushLogPath, cancellationToken);
+        progress?.Report(new SyncProgress { Phase = "Executing sync operations", Detail = $"{plan.UploadCount} uploads, {plan.DeleteCount} deletes, {plan.SkipCount} skipped", Completed = 0, Total = plan.UploadCount + plan.DeleteCount });
+        await _executor.ExecuteAsync(plan, session, session.HistoryRoot, session.PushLogPath, progress, cancellationToken);
         await _historyManager.CleanOldHistoryAsync(session.HistoryRoot, profile.HistoryRetentionDays, session.PushLogPath, cancellationToken);
 
         session.EndedAt = DateTimeOffset.Now;
@@ -201,7 +217,8 @@ public sealed class WorkSessionService
         string remoteRoot,
         string localRoot,
         string logPath,
-        CancellationToken cancellationToken)
+        IProgress<SyncProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(localRoot);
         var created = 0;
@@ -225,6 +242,10 @@ public sealed class WorkSessionService
             PathSafety.EnsureInsideRoot(localRoot, localDirectory, "create directory skeleton");
             Directory.CreateDirectory(localDirectory);
             created++;
+            if (progress is not null)
+            {
+                progress.Report(new SyncProgress { Phase = $"Synchronizing skeleton ({created} dirs)", Detail = relative });
+            }
         }
 
         await _logService.AppendAsync(logPath, $"Directory skeleton created/verified. Directories: {created}", cancellationToken);
@@ -233,30 +254,38 @@ public sealed class WorkSessionService
     private async Task AppendUnselectedUploadsAsync(
         SyncPlan plan,
         WorkSession session,
+        IProgress<SyncProgress>? progress,
         CancellationToken cancellationToken)
     {
         var selectedSet = new HashSet<string>(session.SelectedPaths, StringComparer.OrdinalIgnoreCase);
         var unselectedPaths = new List<string>();
+        var seenDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         if (Directory.Exists(session.LocalRoot))
         {
-            foreach (var directory in Directory.EnumerateDirectories(session.LocalRoot, "*", new EnumerationOptions
+            // Enumerate files directly (one pass) instead of directories + per-dir file checks
+            foreach (var file in Directory.EnumerateFiles(session.LocalRoot, "*", new EnumerationOptions
             {
                 RecurseSubdirectories = true,
                 IgnoreInaccessible = true,
                 AttributesToSkip = FileAttributes.ReparsePoint
             }))
             {
-                var relative = PathSafety.GetRelativePath(session.LocalRoot, directory);
-                var segments = relative.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
-                if (segments.Any(s => string.Equals(s, AppConstants.LocalMetadataDirName, StringComparison.OrdinalIgnoreCase)))
-                {
+                cancellationToken.ThrowIfCancellationRequested();
+                var relative = PathSafety.GetRelativePath(session.LocalRoot, file);
+                if (IsInsideMetadataFolder(relative))
                     continue;
-                }
 
-                if (!IsUnderAnySelectedPath(relative, selectedSet))
+                var dirRelative = Path.GetDirectoryName(relative)?.Replace('\\', '/') ?? "";
+                if (string.IsNullOrEmpty(dirRelative))
+                    continue;
+
+                if (IsUnderAnySelectedPath(dirRelative, selectedSet))
+                    continue;
+
+                if (seenDirs.Add(dirRelative))
                 {
-                    unselectedPaths.Add(relative);
+                    unselectedPaths.Add(dirRelative);
                 }
             }
         }
@@ -266,13 +295,14 @@ public sealed class WorkSessionService
             return;
         }
 
-        var unselectedLocalFiles = await _fileScanner.ScanAsync(session.LocalRoot, unselectedPaths, computeHashes: false, cancellationToken);
+        progress?.Report(new SyncProgress { Phase = "Synchronizing unselected folders", Detail = $"{unselectedPaths.Count} non-empty directories", Completed = 0, Total = 0 });
+        var unselectedLocalFiles = await _fileScanner.ScanAsync(session.LocalRoot, unselectedPaths, computeHashes: false, progress, cancellationToken);
         if (unselectedLocalFiles.Count == 0)
         {
             return;
         }
 
-        var unselectedRemoteFiles = await _fileScanner.ScanAsync(session.RemoteRoot, unselectedPaths, computeHashes: false, cancellationToken);
+        var unselectedRemoteFiles = await _fileScanner.ScanAsync(session.RemoteRoot, unselectedPaths, computeHashes: false, progress, cancellationToken);
         var remoteSet = new HashSet<string>(
             unselectedRemoteFiles.Select(f => f.RelativePath),
             StringComparer.OrdinalIgnoreCase);
@@ -318,6 +348,12 @@ public sealed class WorkSessionService
         return false;
     }
 
+    private static bool IsInsideMetadataFolder(string relativePath)
+    {
+        var segments = relativePath.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Any(s => string.Equals(s, AppConstants.LocalMetadataDirName, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static void PrepareProfileDefaults(ProfileConfig profile)
     {
         if (string.IsNullOrWhiteSpace(profile.RclonePath))
@@ -330,9 +366,9 @@ public sealed class WorkSessionService
             profile.LogRoot = Path.Combine(profile.LocalRoot + AppConstants.LocalMetadataDirName, "logs");
         }
 
-        if (!string.IsNullOrWhiteSpace(profile.RemoteRoot) && string.IsNullOrWhiteSpace(profile.HistoryRoot))
+        if (!string.IsNullOrWhiteSpace(profile.LocalRoot) && string.IsNullOrWhiteSpace(profile.HistoryRoot))
         {
-            profile.HistoryRoot = profile.RemoteRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + "_History";
+            profile.HistoryRoot = Path.Combine(profile.LocalRoot + AppConstants.LocalMetadataDirName, "history");
         }
     }
 
