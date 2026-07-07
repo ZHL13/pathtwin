@@ -48,12 +48,12 @@ dotnet run --project tools/iconprocessor/IconProcessor/IconProcessor.csproj
 The public release package does not include `rclone.exe`.
 
 ```powershell
-scripts/package-release.ps1 -Version 0.1.1
+scripts/package-release.ps1 -Version 0.1.2
 ```
 
 Confirm:
 
-- `artifacts/PathTwin-0.1.1-win-x64.exe` exists.
+- `artifacts/PathTwin-0.1.2-win-x64.exe` exists.
 - `artifacts/PathTwin-latest-win-x64.exe` exists.
 - The single-file exe runs without adjacent DLL files.
 - The app starts and shows the setup/profile screen.
@@ -63,7 +63,7 @@ Confirm:
 
 Upload both release assets:
 
-- `artifacts/PathTwin-0.1.1-win-x64.exe`
+- `artifacts/PathTwin-0.1.2-win-x64.exe`
 - `artifacts/PathTwin-latest-win-x64.exe`
 
 Do not commit `publish/` or `artifacts/`.

@@ -1,0 +1,58 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PathTwin.App.Views.LightFolderPickerWindow"
+        Title="Select Folder"
+        Width="760"
+        Height="560"
+        MinWidth="640"
+        MinHeight="420"
+        Background="#F5F6F8">
+  <Window.Styles>
+    <Style Selector="Button">
+      <Setter Property="Padding" Value="12,7" />
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="Margin" Value="0,0,8,0" />
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="#0F6B5F" />
+      <Setter Property="Foreground" Value="White" />
+    </Style>
+    <Style Selector="Border.panel">
+      <Setter Property="Background" Value="White" />
+      <Setter Property="BorderBrush" Value="#D6DAE2" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="12" />
+    </Style>
+  </Window.Styles>
+
+  <Grid Margin="16" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+    <DockPanel LastChildFill="True">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button Content="Up" Click="Up_Click" />
+        <Button Content="Load" Click="Load_Click" />
+      </StackPanel>
+      <TextBox Name="PathBox" Watermark="Enter a local, mapped, or UNC path" KeyDown="PathBox_KeyDown" />
+    </DockPanel>
+
+    <TextBlock Grid.Row="1" Name="StatusText" Foreground="#4D5665" TextWrapping="Wrap" />
+
+    <Border Grid.Row="2" Classes="panel">
+      <ListBox Name="ItemsList" DoubleTapped="ItemsList_DoubleTapped">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <Grid ColumnDefinitions="42,*" MinHeight="28">
+              <TextBlock Text="{Binding Marker}" FontWeight="SemiBold" Foreground="#4D5665" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="1" Text="{Binding Name}" TextWrapping="NoWrap" VerticalAlignment="Center" />
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Border>
+
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button Classes="primary" Content="Select This Folder" Click="Select_Click" />
+      <Button Content="Cancel" Click="Cancel_Click" />
+    </StackPanel>
+  </Grid>
+</Window>

@@ -10,6 +10,7 @@ It is not meant to mirror an entire drive. The app is built around a work sessio
 - JSON configuration under the user profile
 - One active profile, with config shaped for multiple profiles later
 - Native remote directory tree loading for local/SMB paths
+- Lightweight remote root picker that only lists the current folder level
 - Checkbox folder selection with parent/child behavior
 - Start Work Session pull
 - Session manifest saved under `<localRoot>.pfs\sessions`
@@ -63,12 +64,12 @@ rclone's own downloads page describes rclone as a single executable, `rclone.exe
 ## Publish Windows Standalone
 
 ```powershell
-scripts/package-release.ps1 -Version 0.1.1
+scripts/package-release.ps1 -Version 0.1.2
 ```
 
 The release script creates standalone, self-contained executables that do not require adjacent DLL files:
 
-- `artifacts/PathTwin-0.1.1-win-x64.exe`: versioned release executable
+- `artifacts/PathTwin-0.1.2-win-x64.exe`: versioned release executable
 - `artifacts/PathTwin-latest-win-x64.exe`: stable latest executable name
 
 ## License

@@ -21,7 +21,14 @@ public sealed partial class MainWindow : Window
     }
 
     private async void BrowseRemoteRoot_Click(object? sender, RoutedEventArgs e)
-        => await PickFolderAsync("Remote Root", path => ViewModel?.SetRemoteRootFromPicker(path));
+    {
+        var window = new LightFolderPickerWindow("Remote Root", ViewModel?.RemoteRoot ?? string.Empty);
+        var path = await window.ShowDialog<string?>(this);
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            ViewModel?.SetRemoteRootFromPicker(path);
+        }
+    }
 
     private async void BrowseLocalRoot_Click(object? sender, RoutedEventArgs e)
         => await PickFolderAsync("Local Root", path => ViewModel?.SetLocalRootFromPicker(path));

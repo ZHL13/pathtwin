@@ -5,7 +5,7 @@ namespace PathTwin.App.Services;
 
 public sealed class DirectoryTreeService
 {
-    private const int MaxDirectoriesPerLevel = 1000;
+    private const int MaxDirectoriesPerLevel = 300;
 
     /// <summary>Loads only the top-level directories (no recursion).</summary>
     public Task<IReadOnlyList<DirectoryNode>> LoadAsync(
