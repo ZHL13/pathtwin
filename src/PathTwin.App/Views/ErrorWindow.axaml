@@ -1,0 +1,48 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PathTwin.App.Views.ErrorWindow"
+        Title="{Binding Title}"
+        Width="760"
+        Height="480"
+        MinWidth="620"
+        MinHeight="360"
+        Background="#F5F6F8">
+  <Window.Styles>
+    <Style Selector="Button">
+      <Setter Property="Padding" Value="12,7" />
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="Margin" Value="0,0,8,0" />
+    </Style>
+    <Style Selector="Border.panel">
+      <Setter Property="Background" Value="White" />
+      <Setter Property="BorderBrush" Value="#D6DAE2" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="14" />
+    </Style>
+  </Window.Styles>
+
+  <Grid Margin="16" RowDefinitions="Auto,*,Auto" RowSpacing="12">
+    <TextBlock Text="{Binding Title}" FontSize="20" FontWeight="SemiBold" />
+    <Border Grid.Row="1" Classes="panel">
+      <ScrollViewer>
+        <ItemsControl ItemsSource="{Binding Items}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Border BorderBrush="#E2B8A8" BorderThickness="0,0,0,1" Padding="0,8">
+                <Grid ColumnDefinitions="240,*" ColumnSpacing="12">
+                  <TextBlock Text="{Binding Path}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                  <TextBlock Grid.Column="1" Text="{Binding Details}" TextWrapping="Wrap" Foreground="#7A2A20" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Border>
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button Content="Open Logs" Click="OpenLogs_Click" />
+      <Button Content="Close" Click="Close_Click" />
+    </StackPanel>
+  </Grid>
+</Window>
