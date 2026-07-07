@@ -5,7 +5,7 @@ namespace PathTwin.App.Services;
 
 public sealed class DirectoryTreeService
 {
-    private const int MaxDirectoryNodes = 10000;
+    private const int MaxDirectoriesPerLevel = 1000;
 
     /// <summary>Loads only the top-level directories (no recursion).</summary>
     public Task<IReadOnlyList<DirectoryNode>> LoadAsync(
@@ -46,12 +46,25 @@ public sealed class DirectoryTreeService
         string current,
         CancellationToken cancellationToken)
     {
-        var nodes = new List<DirectoryNode>();
-        foreach (var directory in Directory.EnumerateDirectories(current, "*", new EnumerationOptions
+        var directories = new List<string>(MaxDirectoriesPerLevel + 1);
+        foreach (var directory in EnumerateDirectoriesSafe(current))
         {
-            IgnoreInaccessible = true,
-            AttributesToSkip = FileAttributes.ReparsePoint
-        }).OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+            cancellationToken.ThrowIfCancellationRequested();
+            directories.Add(directory);
+            if (directories.Count > MaxDirectoriesPerLevel)
+            {
+                break;
+            }
+        }
+
+        var hasMore = directories.Count > MaxDirectoriesPerLevel;
+        if (hasMore)
+        {
+            directories.RemoveAt(directories.Count - 1);
+        }
+
+        var nodes = new List<DirectoryNode>();
+        foreach (var directory in directories.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -66,11 +79,70 @@ public sealed class DirectoryTreeService
             {
                 Name = dirName,
                 RelativePath = relative,
-                Children = [], // lazy — loaded on expansion
-                HasChildren = Directory.EnumerateDirectories(directory).Any()
+                Children = [],
+                // Avoid probing every child directory on large/slow SMB shares. Empty folders
+                // simply collapse to no children after the user expands them.
+                HasChildren = true
+            });
+        }
+
+        if (hasMore)
+        {
+            nodes.Add(new DirectoryNode
+            {
+                Name = $"More than {MaxDirectoriesPerLevel} folders here. Choose a narrower root or subfolder.",
+                RelativePath = string.Empty,
+                IsSelectable = false,
+                IsLimitNotice = true
             });
         }
 
         return nodes;
     }
+
+    private static IEnumerable<string> EnumerateDirectoriesSafe(string current)
+    {
+        IEnumerator<string>? enumerator = null;
+        try
+        {
+            enumerator = Directory.EnumerateDirectories(current, "*", new EnumerationOptions
+            {
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.ReparsePoint
+            }).GetEnumerator();
+        }
+        catch (Exception ex) when (IsEnumerationException(ex))
+        {
+            yield break;
+        }
+
+        using (enumerator)
+        {
+            while (true)
+            {
+                string directory;
+                try
+                {
+                    if (!enumerator.MoveNext())
+                    {
+                        yield break;
+                    }
+
+                    directory = enumerator.Current;
+                }
+                catch (Exception ex) when (IsEnumerationException(ex))
+                {
+                    yield break;
+                }
+
+                yield return directory;
+            }
+        }
+    }
+
+    private static bool IsEnumerationException(Exception exception)
+        => exception is UnauthorizedAccessException
+            or IOException
+            or DirectoryNotFoundException
+            or PathTooLongException;
 }

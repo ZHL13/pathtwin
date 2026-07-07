@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia.Threading;
 using PathTwin.App.Models;
 using PathTwin.App.Services;
 
@@ -13,6 +14,7 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
     private bool _isExpanded;
     private bool _childrenLoaded;
     private bool _loadingChildren;
+    private bool _suppressSelectionChanged;
 
     public DirectoryNodeViewModel(
         DirectoryNode node,
@@ -23,17 +25,19 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
     {
         Name = node.Name;
         RelativePath = node.RelativePath;
+        IsSelectable = node.IsSelectable;
+        IsLimitNotice = node.IsLimitNotice;
         Parent = parent;
         _selectionChanged = selectionChanged;
         _treeService = treeService;
         _remoteRoot = remoteRoot;
-        _childrenLoaded = !node.HasChildren;
+        _childrenLoaded = !node.HasChildren || node.IsLimitNotice;
 
         if (node.HasChildren && node.Children.Count == 0)
         {
             // Placeholder — will be replaced when expanded
             Children = [new DirectoryNodeViewModel(
-                new DirectoryNode { Name = "…", RelativePath = "", HasChildren = false },
+                new DirectoryNode { Name = "Loading...", RelativePath = "", HasChildren = false, IsSelectable = false },
                 this, selectionChanged)];
         }
         else
@@ -45,6 +49,8 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
 
     public string Name { get; }
     public string RelativePath { get; }
+    public bool IsSelectable { get; }
+    public bool IsLimitNotice { get; }
     public DirectoryNodeViewModel? Parent { get; }
     public ObservableCollection<DirectoryNodeViewModel> Children { get; }
 
@@ -65,6 +71,9 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         get => _isChecked;
         set
         {
+            if (!IsSelectable)
+                return;
+
             var effectiveValue = value;
             if (effectiveValue == null)
                 effectiveValue = false;
@@ -75,6 +84,9 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
 
     public void CollectSelectedTopLevel(ICollection<string> selectedPaths, bool parentSelected = false)
     {
+        if (!IsSelectable)
+            return;
+
         if (IsChecked == true && !parentSelected)
         {
             selectedPaths.Add(RelativePath);
@@ -86,7 +98,7 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
 
         foreach (var child in Children)
         {
-            if (child._loadingChildren || child.Name == "…")
+            if (child._loadingChildren || !child.IsSelectable)
                 continue;
 
             child.CollectSelectedTopLevel(selectedPaths, parentSelected);
@@ -102,20 +114,45 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         try
         {
             var nodes = await _treeService.LoadChildrenAsync(_remoteRoot, RelativePath);
-            _childrenLoaded = true;
-
-            Children.Clear();
-            foreach (var child in nodes)
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                Children.Add(new DirectoryNodeViewModel(child, this, _selectionChanged, _treeService, _remoteRoot));
-            }
+                _childrenLoaded = true;
+                Children.Clear();
+                foreach (var child in nodes)
+                {
+                    var childViewModel = new DirectoryNodeViewModel(child, this, _selectionChanged, _treeService, _remoteRoot);
+                    Children.Add(childViewModel);
+                    if (IsChecked == true && childViewModel.IsSelectable)
+                    {
+                        childViewModel.SetChecked(true, updateChildren: true, updateParent: false);
+                    }
+                }
 
-            RefreshFromChildren();
-            _selectionChanged();
+                if (IsChecked != true)
+                {
+                    RefreshFromChildren();
+                }
+
+                _selectionChanged();
+            });
         }
-        catch
+        catch (Exception ex)
         {
-            // Keep placeholder on error
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _childrenLoaded = true;
+                Children.Clear();
+                Children.Add(new DirectoryNodeViewModel(
+                    new DirectoryNode
+                    {
+                        Name = $"Could not load this folder: {ex.Message}",
+                        RelativePath = string.Empty,
+                        IsSelectable = false,
+                        IsLimitNotice = true
+                    },
+                    this,
+                    _selectionChanged));
+            });
         }
         finally
         {
@@ -125,6 +162,9 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
 
     private void SetChecked(bool? value, bool updateChildren, bool updateParent)
     {
+        if (!IsSelectable)
+            return;
+
         if (_isChecked == value)
             return;
 
@@ -135,7 +175,7 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         {
             foreach (var child in Children)
             {
-                if (child._loadingChildren)
+                if (child._loadingChildren || !child.IsSelectable)
                     continue;
                 child.SetChecked(value, updateChildren: true, updateParent: false);
             }
@@ -144,19 +184,21 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         if (updateParent)
             Parent?.RefreshFromChildren();
 
-        _selectionChanged();
+        if (!_suppressSelectionChanged)
+            _selectionChanged();
     }
 
     private void RefreshFromChildren()
     {
-        if (Children.Count == 0)
+        var selectableChildren = Children.Where(child => child.IsSelectable).ToArray();
+        if (selectableChildren.Length == 0)
             return;
 
-        if (Children.Count == 1 && Children[0]._loadingChildren)
+        if (selectableChildren.Length == 1 && selectableChildren[0]._loadingChildren)
             return;
 
-        var allChecked = Children.All(child => child.IsChecked == true);
-        var allUnchecked = Children.All(child => child.IsChecked != true);
+        var allChecked = selectableChildren.All(child => child.IsChecked == true);
+        var allUnchecked = selectableChildren.All(child => child.IsChecked != true);
 
         bool? aggregate;
         if (allChecked)
@@ -166,6 +208,14 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         else
             aggregate = null;
 
-        SetChecked(aggregate, updateChildren: false, updateParent: true);
+        _suppressSelectionChanged = true;
+        try
+        {
+            SetChecked(aggregate, updateChildren: false, updateParent: true);
+        }
+        finally
+        {
+            _suppressSelectionChanged = false;
+        }
     }
 }
