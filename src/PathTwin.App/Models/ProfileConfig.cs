@@ -12,6 +12,7 @@ public sealed class ProfileConfig
     public string LogRoot { get; set; } = string.Empty;
     public string RclonePath { get; set; } = AppConstants.DefaultRclonePath;
     public bool PreserveDirectorySkeleton { get; set; } = true;
+    public int SkeletonDepth { get; set; } = 2;
     public PullMode PullMode { get; set; } = PullMode.Mirror;
     public PushMode PushMode { get; set; } = PushMode.SafeMirrorWithBackup;
     public int HistoryRetentionDays { get; set; } = 7;

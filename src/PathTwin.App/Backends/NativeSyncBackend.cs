@@ -81,11 +81,14 @@ public sealed class NativeSyncBackend : ISyncBackend
         await _logService.AppendAsync(options.LogPath, $"{(mirror ? "Mirror" : "Copy")}: {source} -> {destination}", cancellationToken);
 
         var copied = 0;
-        foreach (var directory in EnumerateDirectoriesSafe(source))
+        if (options.CreateEmptyDirectories)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var relative = PathSafety.GetRelativePath(source, directory);
-            Directory.CreateDirectory(PathSafety.CombineRootAndRelative(destination, relative));
+            foreach (var directory in EnumerateDirectoriesSafe(source))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var relative = PathSafety.GetRelativePath(source, directory);
+                Directory.CreateDirectory(PathSafety.CombineRootAndRelative(destination, relative));
+            }
         }
 
         foreach (var file in EnumerateFilesSafe(source))

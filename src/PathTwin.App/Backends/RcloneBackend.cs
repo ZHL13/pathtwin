@@ -38,20 +38,32 @@ public sealed class RcloneBackend : ISyncBackend
         string destination,
         SyncBackendOptions options,
         CancellationToken cancellationToken = default)
-        => RunLoggedAsync(
-            ["copy", source, destination, "--create-empty-src-dirs", "--log-file", options.LogPath, "--log-level", "INFO"],
-            options.LogPath,
-            cancellationToken);
+    {
+        var arguments = new List<string> { "copy", source, destination };
+        if (options.CreateEmptyDirectories)
+        {
+            arguments.Add("--create-empty-src-dirs");
+        }
+
+        arguments.AddRange(["--log-file", options.LogPath, "--log-level", "INFO"]);
+        return RunLoggedAsync(arguments, options.LogPath, cancellationToken);
+    }
 
     public Task SyncAsync(
         string source,
         string destination,
         SyncBackendOptions options,
         CancellationToken cancellationToken = default)
-        => RunLoggedAsync(
-            ["sync", source, destination, "--create-empty-src-dirs", "--log-file", options.LogPath, "--log-level", "INFO"],
-            options.LogPath,
-            cancellationToken);
+    {
+        var arguments = new List<string> { "sync", source, destination };
+        if (options.CreateEmptyDirectories)
+        {
+            arguments.Add("--create-empty-src-dirs");
+        }
+
+        arguments.AddRange(["--log-file", options.LogPath, "--log-level", "INFO"]);
+        return RunLoggedAsync(arguments, options.LogPath, cancellationToken);
+    }
 
     public Task DryRunAsync(
         string source,

@@ -1,8 +1,26 @@
 # PathTwin
 
+<p align="center">
+  <img src="icon.png" alt="PathTwin logo" width="120">
+</p>
+
 PathTwin is a Windows-first desktop app for selective, session-based folder synchronization.
 
 It is not meant to mirror an entire drive. The app is built around a work session: choose a remote root, choose a local root, select only the folders needed for this session, pull them locally with their relative paths preserved, work locally, then end the session and safely push changes back.
+
+## Screenshots
+
+**Profile setup**
+
+<img src="screenshots/Screenshot_config.png" alt="PathTwin profile setup" width="900">
+
+**Selective pull**
+
+<img src="screenshots/Screenshot_pull.png" alt="PathTwin selective folder pull" width="900">
+
+**Active session**
+
+<img src="screenshots/Screenshot_push.png" alt="PathTwin active session" width="900">
 
 ## Current MVP
 
@@ -11,12 +29,14 @@ It is not meant to mirror an entire drive. The app is built around a work sessio
 - One active profile, with config shaped for multiple profiles later
 - Lazy-loaded remote directory tree for local/SMB paths
 - Three-state checkbox folder selection (checked / unchecked / partial)
+- Configurable shallow local skeleton depth, defaulting to 2
 - Start Work Session pull with real-time progress
+- Add Folder / Resume Sync during an active session, with prior selections locked
 - End Work Session push with three-way planning and real-time progress
 - Session manifest saved under `<localRoot>.pt\sessions`
 - Remote backup before overwrite/delete (`overwritten/`, `deleted/`, `uploaded/` buckets)
 - Version history auto-cleanup (configurable retention days)
-- Unselected skeleton folders: upload new files only, skip empty directories
+- Unselected non-empty skeleton folders: update-only push; empty skeleton folders are ignored
 - Basic conflict/error window and logs
 - Single-instance guard
 - Windows scheduled task with multi-trigger support (logon + session unlock)
@@ -26,6 +46,28 @@ It is not meant to mirror an entire drive. The app is built around a work sessio
 - Application icon (rounded, 1000×1000)
 
 ## Changelog
+
+### v0.1.4
+
+**Session workflow**
+- Added configurable `SkeletonDepth` for shallow local folder skeleton creation.
+- Start Work records `InitialSelectedPaths` and creates only the configured skeleton depth before pulling selected folders.
+- Added Add Folder mode during an active session, with existing session folders checked and locked.
+- Added Resume Sync to pull only newly selected folders and append them to the active session.
+
+**Final push behavior**
+- End Work now categorizes local folders into selected mirror-push folders, unselected non-empty update-only folders, and ignored empty skeleton folders.
+- Selected folders keep the existing conflict planning and remote backup behavior before overwrites/deletes.
+- Unselected non-empty folders use copy/update behavior and never mirror-delete remote files.
+- rclone uses `sync` for selected folders and `copy` for unselected update-only folders.
+
+**Manifest and logs**
+- Session JSON records skeleton depth, initial selections, added selections, selected paths, session events, added pull logs, and final push log.
+- Push logs include a categorized plan with selected folders, update-only folders, and an empty skeleton folder count.
+
+**UI and docs**
+- README now includes the app logo and screenshots.
+- Header buttons keep clear contrast in normal, hover, pressed, and disabled states.
 
 ### v0.1.3
 
@@ -118,12 +160,12 @@ rclone's own downloads page describes rclone as a single executable, `rclone.exe
 ## Publish Windows Standalone
 
 ```powershell
-scripts/package-release.ps1 -Version 0.1.3
+scripts/package-release.ps1 -Version 0.1.4
 ```
 
 The release script creates standalone, self-contained executables that do not require adjacent DLL files:
 
-- `artifacts/PathTwin-0.1.3-win-x64.exe`: versioned release executable
+- `artifacts/PathTwin-0.1.4-win-x64.exe`: versioned release executable
 - `artifacts/PathTwin-latest-win-x64.exe`: stable latest executable name
 
 ## License

@@ -58,6 +58,43 @@ public sealed class SyncExecutor
         }
     }
 
+    public async Task BackupRemoteChangesAsync(
+        SyncPlan plan,
+        WorkSession session,
+        string historyRoot,
+        string logPath,
+        IProgress<SyncProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        Directory.CreateDirectory(historyRoot);
+        var operations = plan.Operations
+            .Where(operation => operation.RequiresRemoteBackup
+                && operation.Kind is SyncOperationKind.OverwriteRemote or SyncOperationKind.DeleteRemote)
+            .ToList();
+
+        var completed = 0;
+        foreach (var operation in operations)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var remotePath = PathSafety.CombineRootAndRelative(session.RemoteRoot, operation.RelativePath);
+            progress?.Report(new SyncProgress
+            {
+                Phase = $"Backing up remote changes ({completed + 1}/{operations.Count})",
+                Detail = operation.RelativePath,
+                Completed = completed,
+                Total = operations.Count
+            });
+
+            if (File.Exists(remotePath))
+            {
+                var bucket = operation.Kind == SyncOperationKind.DeleteRemote ? "deleted" : "overwritten";
+                await BackupRemoteFileAsync(session, remotePath, operation.RelativePath, historyRoot, bucket, logPath, cancellationToken);
+            }
+
+            completed++;
+        }
+    }
+
     private async Task UploadAsync(
         SyncOperation operation,
         WorkSession session,

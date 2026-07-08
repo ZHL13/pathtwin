@@ -23,20 +23,31 @@ PathTwin is organized as a small Avalonia app with explicit service boundaries. 
 2. Normalize selected relative paths.
 3. Create a timestamp session id.
 4. Scan selected remote files into the session manifest.
-5. Optionally create the local directory skeleton.
+5. Optionally create the local directory skeleton down to the configured skeleton depth.
 6. Pull selected folders from remote root to local root while preserving relative paths.
 7. Save the session JSON under `<localRoot>.pt\sessions`.
+
+### Add Folder / Resume Sync
+
+1. Reload the remote tree with current session selections restored and locked.
+2. Allow only additional folders to be selected.
+3. Append newly selected folders to the active session.
+4. Scan newly added remote folders into the manifest baseline.
+5. Refresh the configured local skeleton.
+6. Pull only newly added folders while preserving relative paths.
 
 ### End Work Session
 
 1. Scan base files from the saved manifest.
 2. Scan current local selected files.
 3. Scan current remote selected files.
-4. Build a three-way sync plan.
+4. Build a three-way sync plan for selected folders.
 5. Stop if conflicts are found.
-6. Back up remote files before overwriting or deleting.
-7. Apply uploads/deletions.
-8. Save logs and update the session JSON.
+6. Back up remote selected-folder files before overwriting or deleting.
+7. Mirror-push selected folders.
+8. Copy/update unselected non-empty folders without remote mirror deletes.
+9. Ignore empty skeleton folders and log their count.
+10. Save logs and update the session JSON.
 
 ## Safety Rules
 

@@ -26,6 +26,39 @@
       <Setter Property="Foreground" Value="#E0E5EB" />
       <Setter Property="BorderBrush" Value="#4A5568" />
       <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Opacity" Value="1" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="4"
+                  Padding="{TemplateBinding Padding}">
+            <TextBlock Text="{TemplateBinding Content}"
+                       Foreground="{TemplateBinding Foreground}"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.header-btn:pointerover">
+      <Setter Property="Background" Value="#3D4F68" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="BorderBrush" Value="#8EA2BF" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.header-btn:pressed">
+      <Setter Property="Background" Value="#4F6785" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="BorderBrush" Value="#B8C8DD" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.header-btn:disabled">
+      <Setter Property="Background" Value="#263444" />
+      <Setter Property="Foreground" Value="#B8C4D3" />
+      <Setter Property="BorderBrush" Value="#556477" />
+      <Setter Property="Opacity" Value="1" />
     </Style>
     <Style Selector="Border.panel">
       <Setter Property="Background" Value="White" />
@@ -65,7 +98,7 @@
         <TextBlock Text="{Binding SettingsPanelTitle}" FontSize="22" FontWeight="SemiBold" Foreground="#17202A" />
         <ScrollViewer Grid.Row="1" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto">
           <Border Classes="panel">
-          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*"
+          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*"
                 ColumnDefinitions="160,*,Auto"
                 RowSpacing="12"
                 ColumnSpacing="10">
@@ -91,47 +124,50 @@
 
             <CheckBox Grid.Row="5" Grid.Column="1" IsChecked="{Binding PreserveDirectorySkeleton, Mode=TwoWay}" Content="Preserve directory skeleton" />
 
-            <TextBlock Grid.Row="6" Grid.Column="0" Classes="label" Text="History Days" />
-            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding HistoryRetentionDays, Mode=TwoWay}" />
+            <TextBlock Grid.Row="6" Grid.Column="0" Classes="label" Text="Skeleton Depth" />
+            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding SkeletonDepth, Mode=TwoWay}" />
 
-            <TextBlock Grid.Row="7" Grid.Column="0" Classes="label" Text="Cleanup Days" />
-            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding LocalCleanupDays, Mode=TwoWay}" />
+            <TextBlock Grid.Row="7" Grid.Column="0" Classes="label" Text="History Days" />
+            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding HistoryRetentionDays, Mode=TwoWay}" />
+
+            <TextBlock Grid.Row="8" Grid.Column="0" Classes="label" Text="Cleanup Days" />
+            <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding LocalCleanupDays, Mode=TwoWay}" />
 
             <!-- Automatic Startup Section -->
-            <Border Grid.Row="8" Grid.ColumnSpan="3" BorderBrush="#D6DAE2" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="0,6,0,0">
+            <Border Grid.Row="9" Grid.ColumnSpan="3" BorderBrush="#D6DAE2" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="0,6,0,0">
               <TextBlock Text="Automatic Startup" FontSize="16" FontWeight="SemiBold" Foreground="#17202A" />
             </Border>
 
-            <CheckBox Grid.Row="9" Grid.Column="1" IsChecked="{Binding EnableAutomaticStartup, Mode=TwoWay}" Content="Enable automatic startup (scheduled task)" />
+            <CheckBox Grid.Row="10" Grid.Column="1" IsChecked="{Binding EnableAutomaticStartup, Mode=TwoWay}" Content="Enable automatic startup (scheduled task)" />
 
-            <TextBlock Grid.Row="10" Grid.Column="0" Classes="label" Text="Start Window" />
-            <StackPanel Grid.Row="10" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <TextBlock Grid.Row="11" Grid.Column="0" Classes="label" Text="Start Window" />
+            <StackPanel Grid.Row="11" Grid.Column="1" Orientation="Horizontal" Spacing="8">
               <TextBox Text="{Binding StartupWindowStart, Mode=TwoWay}" Width="80" Watermark="19:00" />
               <TextBlock Classes="label" Text="–" VerticalAlignment="Center" />
               <TextBox Text="{Binding StartupWindowEnd, Mode=TwoWay}" Width="80" Watermark="21:00" />
             </StackPanel>
 
-            <CheckBox Grid.Row="11" Grid.Column="1" IsChecked="{Binding StartOnWake, Mode=TwoWay}" Content="Trigger on system wake" />
-            <CheckBox Grid.Row="12" Grid.Column="1" IsChecked="{Binding StartOnUnlock, Mode=TwoWay}" Content="Trigger on session unlock" />
-            <CheckBox Grid.Row="13" Grid.Column="1" IsChecked="{Binding StartOnLogon, Mode=TwoWay}" Content="Trigger on user logon" />
-            <StackPanel Grid.Row="14" Grid.Column="1">
+            <CheckBox Grid.Row="12" Grid.Column="1" IsChecked="{Binding StartOnWake, Mode=TwoWay}" Content="Trigger on system wake" />
+            <CheckBox Grid.Row="13" Grid.Column="1" IsChecked="{Binding StartOnUnlock, Mode=TwoWay}" Content="Trigger on session unlock" />
+            <CheckBox Grid.Row="14" Grid.Column="1" IsChecked="{Binding StartOnLogon, Mode=TwoWay}" Content="Trigger on user logon" />
+            <StackPanel Grid.Row="15" Grid.Column="1">
               <CheckBox IsChecked="{Binding SingleInstanceMode, Mode=TwoWay}" Content="Single-instance mode" />
               <TextBlock Text="Only one window at a time — prevents duplicate instances from scheduled task triggers." Foreground="#8892A0" FontSize="12" Margin="0,2,0,0" />
             </StackPanel>
 
             <!-- Task Scheduler -->
-            <Border Grid.Row="15" Grid.ColumnSpan="3" BorderBrush="#D6DAE2" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="0,6,0,0">
+            <Border Grid.Row="16" Grid.ColumnSpan="3" BorderBrush="#D6DAE2" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="0,6,0,0">
               <TextBlock Text="Windows Scheduled Task" FontSize="16" FontWeight="SemiBold" Foreground="#17202A" />
             </Border>
 
-            <StackPanel Grid.Row="16" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <StackPanel Grid.Row="17" Grid.Column="1" Orientation="Horizontal" Spacing="8">
               <Button Content="Create / Update Task" Command="{Binding CreateTaskCommand}" />
               <Button Content="Delete Task" Command="{Binding DeleteTaskCommand}" />
               <Button Content="Test Run" Command="{Binding TestTaskCommand}" />
             </StackPanel>
-            <TextBlock Grid.Row="17" Grid.Column="1" Text="{Binding TaskStatusText}" Foreground="#4D5665" TextWrapping="Wrap" VerticalAlignment="Center" />
+            <TextBlock Grid.Row="18" Grid.Column="1" Text="{Binding TaskStatusText}" Foreground="#4D5665" TextWrapping="Wrap" VerticalAlignment="Center" />
 
-            <StackPanel Grid.Row="18" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,8,0,0">
+            <StackPanel Grid.Row="19" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,8,0,0">
               <Button Classes="primary" Content="Save Settings" Command="{Binding SaveSettingsCommand}" />
               <Button Content="Cancel" Command="{Binding CancelSettingsCommand}" />
             </StackPanel>
@@ -157,7 +193,7 @@
                   <TreeView.ItemTemplate>
                     <TreeDataTemplate ItemsSource="{Binding Children}">
                       <StackPanel Orientation="Horizontal" Spacing="8">
-                        <CheckBox IsThreeState="True" IsChecked="{Binding IsChecked, Mode=TwoWay}" IsEnabled="{Binding IsSelectable}" VerticalAlignment="Center" />
+                        <CheckBox IsThreeState="True" IsChecked="{Binding IsChecked, Mode=TwoWay}" IsEnabled="{Binding IsCheckBoxEnabled}" VerticalAlignment="Center" />
                         <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
                       </StackPanel>
                     </TreeDataTemplate>
@@ -197,6 +233,7 @@
 
       <Grid IsVisible="{Binding IsSessionActiveVisible}" Margin="18" RowDefinitions="Auto,*" RowSpacing="12">
         <StackPanel Orientation="Horizontal">
+          <Button Classes="primary" Content="Add Folder" Command="{Binding AddFolderCommand}" />
           <Button Content="Open Local Root" Command="{Binding OpenLocalRootCommand}" />
           <Button Content="Open Logs" Command="{Binding OpenLogFolderCommand}" />
           <Button Classes="danger" Content="End Work Session" Command="{Binding EndSessionCommand}" />
@@ -212,6 +249,60 @@
             <ItemsControl Grid.Row="3" Grid.ColumnSpan="2" ItemsSource="{Binding ActivityLines}" Margin="0,18,0,0" />
           </Grid>
         </Border>
+      </Grid>
+
+      <Grid IsVisible="{Binding IsAddFolderVisible}" Margin="18" RowDefinitions="Auto,*" RowSpacing="12">
+        <StackPanel Orientation="Horizontal">
+          <Button Classes="primary" Content="Resume Sync" Command="{Binding ResumeSyncCommand}" />
+          <Button Content="Cancel Add Folder" Command="{Binding CancelAddFolderCommand}" />
+          <Button Content="Open Logs" Command="{Binding OpenLogFolderCommand}" />
+        </StackPanel>
+
+        <Grid Grid.Row="1" ColumnDefinitions="2*,*" ColumnSpacing="12">
+          <Border Classes="panel">
+            <Grid RowDefinitions="Auto,*">
+              <TextBlock Text="Add Folder" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+              <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                <TreeView ItemsSource="{Binding DirectoryTree}">
+                  <TreeView.ItemTemplate>
+                    <TreeDataTemplate ItemsSource="{Binding Children}">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <CheckBox IsThreeState="True" IsChecked="{Binding IsChecked, Mode=TwoWay}" IsEnabled="{Binding IsCheckBoxEnabled}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                      </StackPanel>
+                    </TreeDataTemplate>
+                  </TreeView.ItemTemplate>
+                </TreeView>
+              </ScrollViewer>
+            </Grid>
+          </Border>
+
+          <Grid Grid.Column="1" RowDefinitions="*,*" RowSpacing="12">
+            <Border Classes="panel">
+              <Grid RowDefinitions="Auto,*">
+                <TextBlock Text="Session Folders" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <ScrollViewer Grid.Row="1">
+                  <ItemsControl ItemsSource="{Binding SelectedPaths}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,6" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </Grid>
+            </Border>
+
+            <Border Grid.Row="1" Classes="panel">
+              <Grid RowDefinitions="Auto,*">
+                <TextBlock Text="Activity" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <ScrollViewer Grid.Row="1">
+                  <ItemsControl ItemsSource="{Binding ActivityLines}" />
+                </ScrollViewer>
+              </Grid>
+            </Border>
+          </Grid>
+        </Grid>
       </Grid>
 
       <Grid IsVisible="{Binding IsSyncRunningVisible}" Margin="18" RowDefinitions="Auto,*" RowSpacing="12">

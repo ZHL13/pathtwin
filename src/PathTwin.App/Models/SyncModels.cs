@@ -43,6 +43,13 @@ public sealed class WorkSessionStartResult
     public required string Message { get; init; }
 }
 
+public sealed class WorkSessionResumeResult
+{
+    public required WorkSession Session { get; init; }
+    public required IReadOnlyList<string> AddedPaths { get; init; }
+    public required string Message { get; init; }
+}
+
 public sealed class WorkSessionEndResult
 {
     public bool Succeeded { get; init; }

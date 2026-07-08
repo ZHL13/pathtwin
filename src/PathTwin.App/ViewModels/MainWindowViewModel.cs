@@ -33,6 +33,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private string _logRoot = string.Empty;
     private string _rclonePath = string.Empty;
     private bool _preserveDirectorySkeleton = true;
+    private int _skeletonDepth = 2;
     private int _historyRetentionDays = 7;
     private int _localCleanupDays = 7;
     private bool _enableAutomaticStartup;
@@ -67,6 +68,9 @@ public sealed class MainWindowViewModel : ViewModelBase
         LoadTreeCommand = new AsyncRelayCommand(LoadTreeAsync, () => !IsBusy && IsConfigured);
         DryRunPullCommand = new AsyncRelayCommand(DryRunPullAsync, () => !IsBusy && IsConfigured && SelectedPaths.Count > 0);
         StartSessionCommand = new AsyncRelayCommand(StartSessionAsync, () => !IsBusy && IsConfigured && SelectedPaths.Count > 0);
+        AddFolderCommand = new AsyncRelayCommand(BeginAddFolderAsync, () => !IsBusy && ActiveSession is not null);
+        ResumeSyncCommand = new AsyncRelayCommand(ResumeSyncAsync, () => !IsBusy && ActiveSession is not null && GetNewSelectedPaths().Count > 0);
+        CancelAddFolderCommand = new RelayCommand(CancelAddFolder, () => !IsBusy && ActiveSession is not null);
         EndSessionCommand = new AsyncRelayCommand(EndSessionAsync, () => !IsBusy && ActiveSession is not null);
         OpenLocalRootCommand = new RelayCommand(() => _shellService.OpenFolder(LocalRoot), () => !string.IsNullOrWhiteSpace(LocalRoot));
         OpenLogFolderCommand = new RelayCommand(() => _shellService.OpenFolder(LogRoot), () => !string.IsNullOrWhiteSpace(LogRoot));
@@ -88,6 +92,9 @@ public sealed class MainWindowViewModel : ViewModelBase
     public AsyncRelayCommand LoadTreeCommand { get; }
     public AsyncRelayCommand DryRunPullCommand { get; }
     public AsyncRelayCommand StartSessionCommand { get; }
+    public AsyncRelayCommand AddFolderCommand { get; }
+    public AsyncRelayCommand ResumeSyncCommand { get; }
+    public RelayCommand CancelAddFolderCommand { get; }
     public AsyncRelayCommand EndSessionCommand { get; }
     public RelayCommand OpenLocalRootCommand { get; }
     public RelayCommand OpenLogFolderCommand { get; }
@@ -114,15 +121,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             {
                 OnPropertyChanged(nameof(ActiveSessionId));
                 OnPropertyChanged(nameof(ActiveSessionStartedAt));
-                ActiveSessionPaths.Clear();
-                if (value is not null)
-                {
-                    foreach (var path in value.SelectedPaths)
-                    {
-                        ActiveSessionPaths.Add(path);
-                    }
-                }
-
+                RefreshActiveSessionPaths();
                 RaiseCommands();
             }
         }
@@ -130,6 +129,20 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public string ActiveSessionId => ActiveSession?.SessionId ?? string.Empty;
     public string ActiveSessionStartedAt => ActiveSession?.StartedAt.ToString("yyyy-MM-dd HH:mm:ss") ?? string.Empty;
+
+    private void RefreshActiveSessionPaths()
+    {
+        ActiveSessionPaths.Clear();
+        if (ActiveSession is null)
+        {
+            return;
+        }
+
+        foreach (var path in ActiveSession.SelectedPaths)
+        {
+            ActiveSessionPaths.Add(path);
+        }
+    }
 
     public MainViewState State
     {
@@ -146,10 +159,11 @@ public sealed class MainWindowViewModel : ViewModelBase
     public bool IsSetupVisible => State == MainViewState.Setup || _isSettingsOpen;
     public bool IsReadyVisible => State == MainViewState.Ready && !_isSettingsOpen;
     public bool IsSessionActiveVisible => State == MainViewState.SessionActive && !_isSettingsOpen;
+    public bool IsAddFolderVisible => State == MainViewState.AddFolder && !_isSettingsOpen;
     public bool IsSyncRunningVisible => State == MainViewState.SyncRunning && !_isSettingsOpen;
     public bool IsErrorVisible => State == MainViewState.Error && !_isSettingsOpen;
     public bool IsSettingsButtonVisible =>
-        (State == MainViewState.Ready || State == MainViewState.Error)
+        (State == MainViewState.Ready || State == MainViewState.SessionActive || State == MainViewState.Error)
         && !_isSettingsOpen;
     public string SettingsPanelTitle => State == MainViewState.Setup ? "Profile Setup" : "Edit Profile";
 
@@ -241,6 +255,12 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         get => _preserveDirectorySkeleton;
         set => SetProperty(ref _preserveDirectorySkeleton, value);
+    }
+
+    public int SkeletonDepth
+    {
+        get => _skeletonDepth;
+        set => SetProperty(ref _skeletonDepth, Math.Max(0, value));
     }
 
     public int HistoryRetentionDays
@@ -349,6 +369,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             profile.LogRoot = LogRoot.Trim();
             profile.RclonePath = RclonePath.Trim();
             profile.PreserveDirectorySkeleton = PreserveDirectorySkeleton;
+            profile.SkeletonDepth = SkeletonDepth;
             profile.HistoryRetentionDays = HistoryRetentionDays;
             profile.LocalCleanupDays = LocalCleanupDays;
             profile.EnableAutomaticStartup = EnableAutomaticStartup;
@@ -405,24 +426,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             IsBusy = true;
             CurrentOperation = "Loading remote directory tree";
-            DirectoryTree.Clear();
-            SelectedPaths.Clear();
-
-            var restoredPaths = new HashSet<string>(
-                _config.ActiveProfile.LastSelectedPaths.Select(PathSafety.NormalizeRelativePath),
-                StringComparer.OrdinalIgnoreCase);
-            IReadOnlySet<string>? restoredPathSet = restoredPaths.Count > 0 ? restoredPaths : null;
-            var nodes = await _directoryTreeService.LoadAsync(RemoteRoot);
-            foreach (var node in nodes)
-            {
-                DirectoryTree.Add(new DirectoryNodeViewModel(
-                    node,
-                    parent: null,
-                    RefreshSelectedPaths,
-                    _directoryTreeService,
-                    RemoteRoot,
-                    restoredPathSet));
-            }
+            await LoadDirectoryTreeForSelectionAsync(_config.ActiveProfile.LastSelectedPaths, []);
 
             StatusText = $"Loaded {DirectoryTree.Count} top-level folders";
             AddActivity($"Loaded remote tree from {RemoteRoot}.");
@@ -502,6 +506,98 @@ public sealed class MainWindowViewModel : ViewModelBase
             CurrentOperation = string.Empty;
             IsBusy = false;
         }
+    }
+
+    private async Task BeginAddFolderAsync()
+    {
+        if (ActiveSession is null)
+        {
+            return;
+        }
+
+        try
+        {
+            IsBusy = true;
+            CurrentOperation = "Loading folders for Add Folder";
+            State = MainViewState.AddFolder;
+            await LoadDirectoryTreeForSelectionAsync(ActiveSession.SelectedPaths, ActiveSession.SelectedPaths);
+            StatusText = "Add Folder";
+            AddActivity("Add Folder mode opened.");
+            RefreshSelectedPaths();
+        }
+        catch (Exception exception)
+        {
+            await HandleExceptionAsync(exception, "Failed to open Add Folder");
+        }
+        finally
+        {
+            CurrentOperation = string.Empty;
+            IsBusy = false;
+        }
+    }
+
+    private async Task ResumeSyncAsync()
+    {
+        if (ActiveSession is null)
+        {
+            return;
+        }
+
+        var newPaths = GetNewSelectedPaths();
+        if (newPaths.Count == 0)
+        {
+            StatusText = "No new folders selected";
+            return;
+        }
+
+        try
+        {
+            IsBusy = true;
+            State = MainViewState.SyncRunning;
+            CurrentOperation = "Resuming sync";
+            ProgressDetail = "";
+            ProgressCompleted = 0;
+            ProgressTotal = 0;
+            IsProgressIndeterminate = true;
+
+            var progress = new Progress<SyncProgress>(p =>
+            {
+                CurrentOperation = p.Phase;
+                ProgressDetail = p.Detail;
+                ProgressCompleted = p.Completed;
+                ProgressTotal = p.Total;
+                IsProgressIndeterminate = p.IsIndeterminate;
+            });
+
+            var profile = CaptureProfile();
+            var result = await _sessionService.ResumeWithAdditionalFoldersAsync(ActiveSession, profile, SelectedPaths.ToArray(), progress);
+            RefreshActiveSessionPaths();
+            State = MainViewState.SessionActive;
+            StatusText = result.Message;
+            AddActivity(result.Message);
+
+            _config.ActiveProfile.LastSelectedPaths = ActiveSession.SelectedPaths.ToList();
+            _ = _configService.SaveAsync(_config);
+        }
+        catch (Exception exception)
+        {
+            await HandleExceptionAsync(exception, "Resume Sync failed");
+        }
+        finally
+        {
+            CurrentOperation = string.Empty;
+            IsBusy = false;
+        }
+    }
+
+    private void CancelAddFolder()
+    {
+        DirectoryTree.Clear();
+        SelectedPaths.Clear();
+        State = MainViewState.SessionActive;
+        StatusText = ActiveSession is null ? "Ready" : $"Session {ActiveSession.SessionId} active";
+        AddActivity("Add Folder canceled.");
+        RaiseCommands();
     }
 
     private async Task EndSessionAsync()
@@ -653,6 +749,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         profile.LogRoot = LogRoot.Trim();
         profile.RclonePath = RclonePath.Trim();
         profile.PreserveDirectorySkeleton = PreserveDirectorySkeleton;
+        profile.SkeletonDepth = SkeletonDepth;
         profile.HistoryRetentionDays = HistoryRetentionDays;
         profile.LocalCleanupDays = LocalCleanupDays;
         profile.EnableAutomaticStartup = EnableAutomaticStartup;
@@ -673,6 +770,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         LogRoot = profile.LogRoot;
         RclonePath = profile.RclonePath;
         PreserveDirectorySkeleton = profile.PreserveDirectorySkeleton;
+        SkeletonDepth = profile.SkeletonDepth;
         HistoryRetentionDays = profile.HistoryRetentionDays;
         LocalCleanupDays = profile.LocalCleanupDays;
         EnableAutomaticStartup = profile.EnableAutomaticStartup;
@@ -684,6 +782,36 @@ public sealed class MainWindowViewModel : ViewModelBase
         SingleInstanceMode = profile.SingleInstanceMode;
     }
 
+    private async Task LoadDirectoryTreeForSelectionAsync(
+        IReadOnlyCollection<string> restoredPaths,
+        IReadOnlyCollection<string> lockedPaths)
+    {
+        DirectoryTree.Clear();
+        SelectedPaths.Clear();
+
+        var restored = new HashSet<string>(
+            restoredPaths.Select(PathSafety.NormalizeRelativePath).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        var locked = new HashSet<string>(
+            lockedPaths.Select(PathSafety.NormalizeRelativePath).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        IReadOnlySet<string>? restoredPathSet = restored.Count > 0 ? restored : null;
+        IReadOnlySet<string>? lockedPathSet = locked.Count > 0 ? locked : null;
+
+        var nodes = await _directoryTreeService.LoadAsync(RemoteRoot);
+        foreach (var node in nodes)
+        {
+            DirectoryTree.Add(new DirectoryNodeViewModel(
+                node,
+                parent: null,
+                RefreshSelectedPaths,
+                _directoryTreeService,
+                RemoteRoot,
+                restoredPathSet,
+                lockedPathSet));
+        }
+    }
+
     private void RefreshSelectedPaths()
     {
         SelectedPaths.Clear();
@@ -693,6 +821,38 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
 
         RaiseCommands();
+    }
+
+    private IReadOnlyList<string> GetNewSelectedPaths()
+    {
+        if (ActiveSession is null)
+        {
+            return [];
+        }
+
+        var existing = new HashSet<string>(ActiveSession.SelectedPaths, StringComparer.OrdinalIgnoreCase);
+        return SelectedPaths
+            .Select(PathSafety.NormalizeRelativePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path) && !IsUnderAnySelectedPath(path, existing))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static bool IsUnderAnySelectedPath(string relativePath, HashSet<string> selectedSet)
+    {
+        var normalized = relativePath.Replace('\\', '/').Trim('/');
+        foreach (var selected in selectedSet)
+        {
+            var normalizedSelected = selected.Replace('\\', '/').Trim('/');
+            if (normalized.Equals(normalizedSelected, StringComparison.OrdinalIgnoreCase)
+                || normalized.StartsWith(normalizedSelected + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void AddActivity(string message)
@@ -744,6 +904,9 @@ public sealed class MainWindowViewModel : ViewModelBase
         LoadTreeCommand.RaiseCanExecuteChanged();
         DryRunPullCommand.RaiseCanExecuteChanged();
         StartSessionCommand.RaiseCanExecuteChanged();
+        AddFolderCommand.RaiseCanExecuteChanged();
+        ResumeSyncCommand.RaiseCanExecuteChanged();
+        CancelAddFolderCommand.RaiseCanExecuteChanged();
         EndSessionCommand.RaiseCanExecuteChanged();
         OpenLocalRootCommand.RaiseCanExecuteChanged();
         OpenLogFolderCommand.RaiseCanExecuteChanged();
@@ -757,6 +920,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsSetupVisible));
         OnPropertyChanged(nameof(IsReadyVisible));
         OnPropertyChanged(nameof(IsSessionActiveVisible));
+        OnPropertyChanged(nameof(IsAddFolderVisible));
         OnPropertyChanged(nameof(IsSyncRunningVisible));
         OnPropertyChanged(nameof(IsErrorVisible));
         OnPropertyChanged(nameof(IsSettingsButtonVisible));

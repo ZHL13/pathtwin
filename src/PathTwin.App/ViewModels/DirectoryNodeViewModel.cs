@@ -11,6 +11,7 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
     private readonly DirectoryTreeService? _treeService;
     private readonly string? _remoteRoot;
     private readonly IReadOnlySet<string>? _restoredSelectedPaths;
+    private readonly IReadOnlySet<string>? _lockedSelectedPaths;
     private bool _restoredSelectedPathsActive;
     private bool? _isChecked = false;
     private bool _isExpanded;
@@ -24,7 +25,8 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         Action selectionChanged,
         DirectoryTreeService? treeService = null,
         string? remoteRoot = null,
-        IReadOnlySet<string>? restoredSelectedPaths = null)
+        IReadOnlySet<string>? restoredSelectedPaths = null,
+        IReadOnlySet<string>? lockedSelectedPaths = null)
     {
         Name = node.Name;
         RelativePath = node.RelativePath;
@@ -35,7 +37,9 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         _treeService = treeService;
         _remoteRoot = remoteRoot;
         _restoredSelectedPaths = restoredSelectedPaths;
+        _lockedSelectedPaths = lockedSelectedPaths;
         _restoredSelectedPathsActive = IsSelectable && restoredSelectedPaths is not null;
+        IsLocked = IsSelectable && IsCoveredByLockedPath();
         _childrenLoaded = !node.HasChildren || node.IsLimitNotice;
 
         if (node.HasChildren && node.Children.Count == 0)
@@ -54,15 +58,19 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
                     selectionChanged,
                     treeService,
                     remoteRoot,
-                    restoredSelectedPaths)));
+                    restoredSelectedPaths,
+                    lockedSelectedPaths)));
         }
 
+        ApplyLockedSelectionState();
         ApplyRestoredSelectionState();
     }
 
     public string Name { get; }
     public string RelativePath { get; }
     public bool IsSelectable { get; }
+    public bool IsLocked { get; }
+    public bool IsCheckBoxEnabled => IsSelectable && !IsLocked;
     public bool IsLimitNotice { get; }
     public DirectoryNodeViewModel? Parent { get; }
     public ObservableCollection<DirectoryNodeViewModel> Children { get; }
@@ -84,7 +92,7 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         get => _isChecked;
         set
         {
-            if (!IsSelectable)
+            if (!IsSelectable || IsLocked)
                 return;
 
             var effectiveValue = value;
@@ -152,7 +160,8 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
                         _selectionChanged,
                         _treeService,
                         _remoteRoot,
-                        _restoredSelectedPathsActive ? _restoredSelectedPaths : null);
+                        _restoredSelectedPathsActive ? _restoredSelectedPaths : null,
+                        _lockedSelectedPaths);
                     Children.Add(childViewModel);
                     if (IsChecked == true && childViewModel.IsSelectable)
                     {
@@ -195,6 +204,9 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
     private void SetChecked(bool? value, bool updateChildren, bool updateParent)
     {
         if (!IsSelectable)
+            return;
+
+        if (IsLocked && value != true)
             return;
 
         if (_isChecked == value)
@@ -256,6 +268,9 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         if (!_restoredSelectedPathsActive || _restoredSelectedPaths is null)
             return;
 
+        if (IsLocked)
+            return;
+
         if (_restoredSelectedPaths.Contains(RelativePath))
         {
             _isChecked = true;
@@ -268,12 +283,30 @@ public sealed class DirectoryNodeViewModel : ViewModelBase
         }
     }
 
+    private void ApplyLockedSelectionState()
+    {
+        if (!IsLocked)
+            return;
+
+        _isChecked = true;
+    }
+
     private bool IsDescendantPath(string candidate)
     {
         if (string.IsNullOrEmpty(RelativePath))
             return false;
 
         return candidate.StartsWith(RelativePath + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool IsCoveredByLockedPath()
+    {
+        if (_lockedSelectedPaths is null || string.IsNullOrEmpty(RelativePath))
+            return false;
+
+        return _lockedSelectedPaths.Any(path =>
+            RelativePath.Equals(path, StringComparison.OrdinalIgnoreCase)
+            || RelativePath.StartsWith(path + "/", StringComparison.OrdinalIgnoreCase));
     }
 
     private bool ClearRestoredSelectionsForSubtree()
