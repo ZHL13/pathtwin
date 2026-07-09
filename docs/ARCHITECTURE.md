@@ -25,11 +25,12 @@ PathTwin is organized as a small Avalonia app with explicit service boundaries. 
 4. Check the latest previous session status.
 5. Stop before cleanup if the previous session is `Active`, `Failed`, or `Interrupted`.
 6. Save the current session as `Active`.
-7. Move unselected stale local cache content to local trash while preserving selected folders and needed ancestors.
-8. Scan selected remote files into the session manifest.
-9. Optionally create the local directory skeleton down to the configured skeleton depth.
-10. Pull selected folders from remote root to local root while preserving relative paths.
-11. Save the session JSON under `<localRoot>.pt\sessions`.
+7. Scan selected remote files into the session manifest.
+8. Compare the current shallow remote skeleton down to the configured skeleton depth.
+9. Send stale unselected local cache content to the Windows Recycle Bin while preserving selected folders, needed ancestors, and current skeleton directories.
+10. Create any missing local skeleton directories.
+11. Pull selected folders from remote root to local root while preserving relative paths.
+12. Save the session JSON under `<localRoot>.pt\sessions`.
 
 ### Add Folder / Resume Sync
 
@@ -62,7 +63,8 @@ PathTwin is organized as a small Avalonia app with explicit service boundaries. 
 - Path traversal is blocked by `PathSafety`.
 - Reparse points are skipped during enumeration.
 - Start Work cleanup refuses to run after unfinished previous sessions.
-- Start Work cleanup moves stale unselected local content to `<localRoot>.pt\trash` by default.
+- Start Work cleanup sends stale unselected local content to the Windows Recycle Bin.
+- Start Work cleanup preserves current skeleton directories to avoid delete-and-recreate churn.
 - History cleanup only removes clearly named old history folders under the configured history root.
 
 ## Current Limitations

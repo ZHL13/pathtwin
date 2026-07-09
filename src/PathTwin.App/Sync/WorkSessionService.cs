@@ -36,7 +36,7 @@ public sealed class WorkSessionService
         _executor = executor;
         _historyManager = new VersionHistoryManager(logService);
         _sessionStatusService = new SessionStatusService();
-        _startWorkCleanupService = new StartWorkCleanupService(logService, new LocalTrashService());
+        _startWorkCleanupService = new StartWorkCleanupService(logService, new RecycleBinService());
     }
 
     public async Task<string> DryRunPullAsync(
@@ -131,23 +131,29 @@ public sealed class WorkSessionService
 
         try
         {
-            progress?.Report(new SyncProgress { Phase = "Cleaning unselected local content", Detail = "Preparing local cache", Completed = 0, Total = 0 });
+            progress?.Report(new SyncProgress { Phase = "Synchronizing remote for manifest", Detail = $"{normalized.Count} folder(s)", Completed = 0, Total = 0 });
+            session.Manifest.RemoteFilesAtPull = [.. await _fileScanner.ScanAsync(profile.RemoteRoot, normalized, computeHashes: true, progress, cancellationToken)];
+
+            IReadOnlyList<string> skeletonPaths = [];
+            if (session.PreserveDirectorySkeleton)
+            {
+                progress?.Report(new SyncProgress { Phase = "Comparing directory skeleton", Detail = $"Enumerating remote directories to depth {session.SkeletonDepth}...", Completed = 0, Total = 0 });
+                skeletonPaths = await Task.Run(() => GetDirectorySkeletonPaths(profile.RemoteRoot, session.SkeletonDepth, cancellationToken), cancellationToken);
+            }
+
+            progress?.Report(new SyncProgress { Phase = "Cleaning unselected local content", Detail = "Sending stale cache items to Recycle Bin", Completed = 0, Total = 0 });
             var cleanupPlan = await _startWorkCleanupService.BuildCleanupPlanAsync(
                 profile.LocalRoot,
                 normalized,
-                session.SessionId,
-                profile.MoveCleanedContentToLocalTrash,
+                skeletonPaths,
                 cancellationToken);
             await LogStartWorkCleanupPlanAsync(session, previousSession, cleanupPlan, cancellationToken);
             await _startWorkCleanupService.ExecuteCleanupPlanAsync(cleanupPlan, session.AppLogPath, cancellationToken);
 
-            progress?.Report(new SyncProgress { Phase = "Synchronizing remote for manifest", Detail = $"{normalized.Count} folder(s)", Completed = 0, Total = 0 });
-            session.Manifest.RemoteFilesAtPull = [.. await _fileScanner.ScanAsync(profile.RemoteRoot, normalized, computeHashes: true, progress, cancellationToken)];
-
             if (session.PreserveDirectorySkeleton)
             {
-                progress?.Report(new SyncProgress { Phase = "Synchronizing directory skeleton", Detail = $"Enumerating remote directories to depth {session.SkeletonDepth}...", Completed = 0, Total = 0 });
-                await Task.Run(() => CreateDirectorySkeletonAsync(profile.RemoteRoot, profile.LocalRoot, session.SkeletonDepth, session.AppLogPath, progress, cancellationToken), cancellationToken);
+                progress?.Report(new SyncProgress { Phase = "Synchronizing directory skeleton", Detail = $"Creating missing directories to depth {session.SkeletonDepth}...", Completed = 0, Total = 0 });
+                await CreateDirectorySkeletonAsync(profile.LocalRoot, skeletonPaths, session.SkeletonDepth, session.AppLogPath, progress, cancellationToken);
             }
 
             var backend = _backendFactory.Create(profile);
@@ -217,7 +223,8 @@ public sealed class WorkSessionService
         if (session.PreserveDirectorySkeleton)
         {
             progress?.Report(new SyncProgress { Phase = "Synchronizing directory skeleton", Detail = $"Enumerating remote directories to depth {session.SkeletonDepth}...", Completed = 0, Total = 0 });
-            await Task.Run(() => CreateDirectorySkeletonAsync(profile.RemoteRoot, profile.LocalRoot, session.SkeletonDepth, session.AppLogPath, progress, cancellationToken), cancellationToken);
+            var skeletonPaths = await Task.Run(() => GetDirectorySkeletonPaths(profile.RemoteRoot, session.SkeletonDepth, cancellationToken), cancellationToken);
+            await CreateDirectorySkeletonAsync(profile.LocalRoot, skeletonPaths, session.SkeletonDepth, session.AppLogPath, progress, cancellationToken);
         }
 
         var backend = _backendFactory.Create(profile);
@@ -325,13 +332,14 @@ public sealed class WorkSessionService
         await _logService.AppendAsync(session.AppLogPath, "Start Work cleanup:", cancellationToken);
         await _logService.AppendAsync(session.AppLogPath, $"Session: {session.SessionId}", cancellationToken);
         await _logService.AppendAsync(session.AppLogPath, $"Previous session status: {FormatPreviousSessionStatus(previousSession)}", cancellationToken);
-        await _logService.AppendAsync(session.AppLogPath, $"Mode: {(cleanupPlan.MoveCleanedContentToLocalTrash ? "move to local trash" : "delete permanently")}", cancellationToken);
+        await _logService.AppendAsync(session.AppLogPath, "Mode: send to Windows Recycle Bin", cancellationToken);
         await _logService.AppendAsync(session.AppLogPath, "Selected paths preserved:", cancellationToken);
         foreach (var path in cleanupPlan.SelectedPaths)
         {
             await _logService.AppendAsync(session.AppLogPath, $"- {path}", cancellationToken);
         }
 
+        await _logService.AppendAsync(session.AppLogPath, $"Preserved skeleton directories: {cleanupPlan.PreservedSkeletonPaths.Count}", cancellationToken);
         await _logService.AppendAsync(session.AppLogPath, "Cleaned unselected local content:", cancellationToken);
         if (cleanupPlan.Items.Count == 0)
         {
@@ -379,8 +387,8 @@ public sealed class WorkSessionService
             : $"{previousSession.Status} ({previousSession.SessionId})";
 
     private async Task CreateDirectorySkeletonAsync(
-        string remoteRoot,
         string localRoot,
+        IReadOnlyList<string> skeletonPaths,
         int skeletonDepth,
         string logPath,
         IProgress<SyncProgress>? progress = null,
@@ -388,22 +396,25 @@ public sealed class WorkSessionService
     {
         Directory.CreateDirectory(localRoot);
         var created = 0;
-        foreach (var directory in EnumerateDirectoriesToDepth(remoteRoot, Math.Max(0, skeletonDepth), cancellationToken))
+        foreach (var relative in skeletonPaths)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var relative = PathSafety.GetRelativePath(remoteRoot, directory);
 
             var localDirectory = PathSafety.CombineRootAndRelative(localRoot, relative);
             PathSafety.EnsureInsideRoot(localRoot, localDirectory, "create directory skeleton");
-            Directory.CreateDirectory(localDirectory);
-            created++;
+            if (!Directory.Exists(localDirectory))
+            {
+                Directory.CreateDirectory(localDirectory);
+                created++;
+            }
+
             if (progress is not null)
             {
                 progress.Report(new SyncProgress { Phase = $"Synchronizing skeleton ({created} dirs)", Detail = relative });
             }
         }
 
-        await _logService.AppendAsync(logPath, $"Directory skeleton created/verified. Depth: {skeletonDepth}; directories: {created}", cancellationToken);
+        await _logService.AppendAsync(logPath, $"Directory skeleton created/verified. Depth: {skeletonDepth}; created: {created}; planned: {skeletonPaths.Count}", cancellationToken);
     }
 
     private async Task PullFoldersAsync(
@@ -640,6 +651,17 @@ public sealed class WorkSessionService
             }
         }
     }
+
+    private static IReadOnlyList<string> GetDirectorySkeletonPaths(
+        string remoteRoot,
+        int skeletonDepth,
+        CancellationToken cancellationToken)
+        => EnumerateDirectoriesToDepth(remoteRoot, Math.Max(0, skeletonDepth), cancellationToken)
+            .Select(directory => PathSafety.GetRelativePath(remoteRoot, directory))
+            .Where(relative => !IsInsideMetadataFolder(relative))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(relative => relative, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     private static IEnumerable<string> EnumerateDirectoriesSafe(string root, bool recurse)
     {

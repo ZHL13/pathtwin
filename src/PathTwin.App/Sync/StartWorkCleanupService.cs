@@ -7,19 +7,18 @@ namespace PathTwin.App.Sync;
 public sealed class StartWorkCleanupService
 {
     private readonly LogService _logService;
-    private readonly LocalTrashService _localTrashService;
+    private readonly RecycleBinService _recycleBinService;
 
-    public StartWorkCleanupService(LogService logService, LocalTrashService localTrashService)
+    public StartWorkCleanupService(LogService logService, RecycleBinService recycleBinService)
     {
         _logService = logService;
-        _localTrashService = localTrashService;
+        _recycleBinService = recycleBinService;
     }
 
     public Task<StartWorkCleanupPlan> BuildCleanupPlanAsync(
         string localRoot,
         IReadOnlyCollection<string> selectedPaths,
-        string sessionId,
-        bool moveCleanedContentToLocalTrash,
+        IReadOnlyCollection<string> preservedSkeletonPaths,
         CancellationToken cancellationToken = default)
     {
         var localRootFullPath = Path.GetFullPath(localRoot);
@@ -27,18 +26,21 @@ public sealed class StartWorkCleanupService
             .Select(PathSafety.NormalizeRelativePath)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var skeletonSet = preservedSkeletonPaths
+            .Select(PathSafety.NormalizeRelativePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var items = new List<StartWorkCleanupItem>();
         if (Directory.Exists(localRootFullPath))
         {
-            AddCleanupItems(localRootFullPath, localRootFullPath, selectedSet, items, cancellationToken);
+            AddCleanupItems(localRootFullPath, localRootFullPath, selectedSet, skeletonSet, items, cancellationToken);
         }
 
         var plan = new StartWorkCleanupPlan(
             localRootFullPath,
-            _localTrashService.GetStartWorkTrashRoot(localRoot, sessionId),
-            moveCleanedContentToLocalTrash,
             selectedSet.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray(),
+            skeletonSet.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray(),
             items.OrderBy(item => item.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray());
 
         return Task.FromResult(plan);
@@ -62,18 +64,7 @@ public sealed class StartWorkCleanupService
                     continue;
                 }
 
-                if (plan.MoveCleanedContentToLocalTrash)
-                {
-                    await _localTrashService.MoveToTrashAsync(plan, item, cancellationToken);
-                }
-                else if (item.IsDirectory)
-                {
-                    Directory.Delete(item.SourcePath, recursive: true);
-                }
-                else
-                {
-                    File.Delete(item.SourcePath);
-                }
+                await _recycleBinService.RecycleAsync(item, cancellationToken);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -90,6 +81,7 @@ public sealed class StartWorkCleanupService
         string localRoot,
         string directory,
         HashSet<string> selectedSet,
+        HashSet<string> skeletonSet,
         ICollection<StartWorkCleanupItem> items,
         CancellationToken cancellationToken)
     {
@@ -117,7 +109,17 @@ public sealed class StartWorkCleanupService
             {
                 if (!isReparsePoint)
                 {
-                    AddCleanupItems(localRoot, entry, selectedSet, items, cancellationToken);
+                    AddCleanupItems(localRoot, entry, selectedSet, skeletonSet, items, cancellationToken);
+                }
+
+                continue;
+            }
+
+            if (isDirectory && IsPreservedSkeletonPath(relative, skeletonSet))
+            {
+                if (!isReparsePoint)
+                {
+                    AddCleanupItems(localRoot, entry, selectedSet, skeletonSet, items, cancellationToken);
                 }
 
                 continue;
@@ -125,7 +127,7 @@ public sealed class StartWorkCleanupService
 
             if (isDirectory && !isReparsePoint && ContainsMetadataDirectory(localRoot, entry))
             {
-                AddCleanupItems(localRoot, entry, selectedSet, items, cancellationToken);
+                AddCleanupItems(localRoot, entry, selectedSet, skeletonSet, items, cancellationToken);
                 continue;
             }
 
@@ -146,6 +148,12 @@ public sealed class StartWorkCleanupService
         if (IsUnderAnySelectedPath(item.RelativePath, selectedSet) || IsAncestorOfAnySelectedPath(item.RelativePath, selectedSet))
         {
             throw new InvalidOperationException($"Refusing to clean selected path: {item.RelativePath}");
+        }
+
+        var skeletonSet = plan.PreservedSkeletonPaths.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (item.IsDirectory && IsPreservedSkeletonPath(item.RelativePath, skeletonSet))
+        {
+            throw new InvalidOperationException($"Refusing to clean preserved skeleton path: {item.RelativePath}");
         }
     }
 
@@ -293,6 +301,12 @@ public sealed class StartWorkCleanupService
         return selectedSet.Any(selected => selected.StartsWith(normalized + "/", StringComparison.OrdinalIgnoreCase));
     }
 
+    private static bool IsPreservedSkeletonPath(string relativePath, HashSet<string> skeletonSet)
+    {
+        var normalized = PathSafety.NormalizeRelativePath(relativePath);
+        return skeletonSet.Contains(normalized);
+    }
+
     private static bool IsInsideMetadataFolder(string relativePath)
     {
         var segments = relativePath.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -308,9 +322,8 @@ public sealed class StartWorkCleanupService
 
 public sealed record StartWorkCleanupPlan(
     string LocalRoot,
-    string TrashRoot,
-    bool MoveCleanedContentToLocalTrash,
     IReadOnlyList<string> SelectedPaths,
+    IReadOnlyList<string> PreservedSkeletonPaths,
     IReadOnlyList<StartWorkCleanupItem> Items);
 
 public sealed record StartWorkCleanupItem(

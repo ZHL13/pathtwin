@@ -905,7 +905,6 @@ public sealed class MainWindowViewModel : ViewModelBase
         target.PushMode = source.PushMode;
         target.HistoryRetentionDays = source.HistoryRetentionDays;
         target.LocalCleanupDays = source.LocalCleanupDays;
-        target.MoveCleanedContentToLocalTrash = source.MoveCleanedContentToLocalTrash;
         target.EnableAutomaticStartup = source.EnableAutomaticStartup;
         target.StartupWindowStart = source.StartupWindowStart;
         target.StartupWindowEnd = source.StartupWindowEnd;
@@ -927,8 +926,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             || oldProfile.PullMode != newProfile.PullMode
             || oldProfile.PushMode != newProfile.PushMode
             || oldProfile.HistoryRetentionDays != newProfile.HistoryRetentionDays
-            || oldProfile.LocalCleanupDays != newProfile.LocalCleanupDays
-            || oldProfile.MoveCleanedContentToLocalTrash != newProfile.MoveCleanedContentToLocalTrash;
+            || oldProfile.LocalCleanupDays != newProfile.LocalCleanupDays;
 
     private static bool SameSetting(string left, string right)
         => string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);

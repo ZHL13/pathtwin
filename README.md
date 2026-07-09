@@ -32,7 +32,7 @@ It is not meant to mirror an entire drive. The app is built around a work sessio
 - Configurable shallow local skeleton depth, defaulting to 2
 - Start Work Session pull with real-time progress
 - Start Work safety guard for unfinished previous sessions
-- Unselected stale local cache cleanup moved to local trash before pull
+- Unselected stale local cache cleanup sent to the Windows Recycle Bin after skeleton comparison
 - Add Folder / Resume Sync during an active session, with prior selections locked
 - End Work Session push with three-way planning and real-time progress
 - Session manifest saved under `<localRoot>.pt\sessions`
@@ -48,6 +48,14 @@ It is not meant to mirror an entire drive. The app is built around a work sessio
 - Application icon (rounded, 1000×1000)
 
 ## Changelog
+
+### v0.1.6
+
+**Start Work cleanup**
+- Start Work cleanup now sends stale unselected local cache items to the Windows Recycle Bin instead of moving them into `.pt\trash`.
+- Cleanup now runs after selected remote files are scanned and the shallow skeleton is compared.
+- Existing skeleton directories that still belong to the current remote skeleton are preserved, avoiding unnecessary delete-and-recreate work.
+- Removed the local trash setting from the active profile model; older config files with that field remain readable.
 
 ### v0.1.5
 
@@ -178,12 +186,12 @@ rclone's own downloads page describes rclone as a single executable, `rclone.exe
 ## Publish Windows Standalone
 
 ```powershell
-scripts/package-release.ps1 -Version 0.1.5
+scripts/package-release.ps1 -Version 0.1.6
 ```
 
 The release script creates standalone, self-contained executables that do not require adjacent DLL files:
 
-- `artifacts/PathTwin-0.1.5-win-x64.exe`: versioned release executable
+- `artifacts/PathTwin-0.1.6-win-x64.exe`: versioned release executable
 - `artifacts/PathTwin-latest-win-x64.exe`: stable latest executable name
 
 ## License

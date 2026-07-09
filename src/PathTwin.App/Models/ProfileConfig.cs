@@ -17,7 +17,6 @@ public sealed class ProfileConfig
     public PushMode PushMode { get; set; } = PushMode.SafeMirrorWithBackup;
     public int HistoryRetentionDays { get; set; } = 7;
     public int LocalCleanupDays { get; set; } = 7;
-    public bool MoveCleanedContentToLocalTrash { get; set; } = true;
     public bool EnableAutomaticStartup { get; set; }
     public string StartupWindowStart { get; set; } = "19:00";
     public string StartupWindowEnd { get; set; } = "21:00";
