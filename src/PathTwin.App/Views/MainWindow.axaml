@@ -315,7 +315,14 @@
             <StackPanel Grid.Row="1" Spacing="6">
               <ProgressBar IsIndeterminate="{Binding IsProgressIndeterminate}"
                            Minimum="0" Maximum="{Binding ProgressTotal}" Value="{Binding ProgressCompleted}" Height="10" />
-              <TextBlock Text="{Binding ProgressDetail}" Foreground="#4D5665" FontSize="13" TextWrapping="Wrap" />
+              <Border Height="20" ClipToBounds="True">
+                <TextBlock Text="{Binding ProgressDetail}"
+                           Foreground="#4D5665"
+                           FontSize="13"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center" />
+              </Border>
             </StackPanel>
             <ScrollViewer Grid.Row="2" MaxHeight="300">
               <ItemsControl ItemsSource="{Binding ActivityLines}" />

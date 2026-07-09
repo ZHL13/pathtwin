@@ -31,6 +31,8 @@ It is not meant to mirror an entire drive. The app is built around a work sessio
 - Three-state checkbox folder selection (checked / unchecked / partial)
 - Configurable shallow local skeleton depth, defaulting to 2
 - Start Work Session pull with real-time progress
+- Start Work safety guard for unfinished previous sessions
+- Unselected stale local cache cleanup moved to local trash before pull
 - Add Folder / Resume Sync during an active session, with prior selections locked
 - End Work Session push with three-way planning and real-time progress
 - Session manifest saved under `<localRoot>.pt\sessions`
@@ -46,6 +48,22 @@ It is not meant to mirror an entire drive. The app is built around a work sessio
 - Application icon (rounded, 1000×1000)
 
 ## Changelog
+
+### v0.1.5
+
+**Start Work safety**
+- Start Work now checks the latest previous session before any local cleanup.
+- Cleanup continues only when the previous session is `Completed`, or when no previous session exists.
+- `Active`, `Failed`, and `Interrupted` previous sessions block cleanup and show a warning so unpushed local changes are not hidden.
+- Session JSON now records a `Status` field while remaining compatible with older session files.
+- Edit Profile now returns to the active session view after Cancel, or after saving non-session settings.
+- Saving session-affecting profile changes during an active session first ends that session with the original profile settings, then returns to folder selection.
+- Sync progress detail now keeps a fixed single-line height so the activity log does not jump when file or folder names vary.
+
+**Local cache cleanup**
+- Before the normal skeleton recreation and selected-folder pull, unselected old local cache content is moved to local trash.
+- Selected folders are preserved for the existing remote-to-local pull, and ancestor directories are kept only as needed.
+- Cleanup preserves app metadata folders, validates paths stay under the local root, and avoids following reparse points during enumeration.
 
 ### v0.1.4
 
@@ -160,12 +178,12 @@ rclone's own downloads page describes rclone as a single executable, `rclone.exe
 ## Publish Windows Standalone
 
 ```powershell
-scripts/package-release.ps1 -Version 0.1.4
+scripts/package-release.ps1 -Version 0.1.5
 ```
 
 The release script creates standalone, self-contained executables that do not require adjacent DLL files:
 
-- `artifacts/PathTwin-0.1.4-win-x64.exe`: versioned release executable
+- `artifacts/PathTwin-0.1.5-win-x64.exe`: versioned release executable
 - `artifacts/PathTwin-latest-win-x64.exe`: stable latest executable name
 
 ## License

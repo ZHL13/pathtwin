@@ -3,6 +3,7 @@ namespace PathTwin.App.Models;
 public sealed class WorkSession
 {
     public string SessionId { get; set; } = string.Empty;
+    public string Status { get; set; } = "Active";
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
     public string RemoteRoot { get; set; } = string.Empty;

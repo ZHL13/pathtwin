@@ -17,6 +17,8 @@ public sealed class WorkSessionService
     private readonly SyncBackendFactory _backendFactory;
     private readonly SyncExecutor _executor;
     private readonly VersionHistoryManager _historyManager;
+    private readonly SessionStatusService _sessionStatusService;
+    private readonly StartWorkCleanupService _startWorkCleanupService;
 
     public WorkSessionService(
         ConfigService configService,
@@ -33,6 +35,8 @@ public sealed class WorkSessionService
         _backendFactory = backendFactory;
         _executor = executor;
         _historyManager = new VersionHistoryManager(logService);
+        _sessionStatusService = new SessionStatusService();
+        _startWorkCleanupService = new StartWorkCleanupService(logService, new LocalTrashService());
     }
 
     public async Task<string> DryRunPullAsync(
@@ -84,6 +88,7 @@ public sealed class WorkSessionService
         var session = new WorkSession
         {
             SessionId = sessionId,
+            Status = SessionStatusService.Active,
             StartedAt = DateTimeOffset.Now,
             RemoteRoot = profile.RemoteRoot,
             LocalRoot = profile.LocalRoot,
@@ -102,28 +107,58 @@ public sealed class WorkSessionService
         await _logService.WriteSessionHeaderAsync(session.PullLogPath, session, "Start Work Session / Pull", cancellationToken);
         await _logService.WriteSessionHeaderAsync(session.AppLogPath, session, "App", cancellationToken);
 
-        progress?.Report(new SyncProgress { Phase = "Synchronizing remote for manifest", Detail = $"{normalized.Count} folder(s)", Completed = 0, Total = 0 });
         session.Manifest = new SessionManifest
         {
             SessionId = session.SessionId,
+            Status = session.Status,
             CapturedAt = DateTimeOffset.Now,
             SkeletonDepth = session.SkeletonDepth,
             InitialSelectedPaths = [.. session.InitialSelectedPaths],
             SelectedPaths = [.. session.SelectedPaths],
             Events = [.. session.Events],
-            InitialPullLogPath = session.PullLogPath,
-            RemoteFilesAtPull = [.. await _fileScanner.ScanAsync(profile.RemoteRoot, normalized, computeHashes: true, progress, cancellationToken)]
+            InitialPullLogPath = session.PullLogPath
         };
 
-        if (session.PreserveDirectorySkeleton)
+        var previousSession = await _sessionStatusService.GetLatestPreviousSessionAsync(profile.LocalRoot, cancellationToken);
+        if (!SessionStatusService.IsPreviousSessionSafeToClean(previousSession))
         {
-            progress?.Report(new SyncProgress { Phase = "Synchronizing directory skeleton", Detail = $"Enumerating remote directories to depth {session.SkeletonDepth}...", Completed = 0, Total = 0 });
-            await Task.Run(() => CreateDirectorySkeletonAsync(profile.RemoteRoot, profile.LocalRoot, session.SkeletonDepth, session.AppLogPath, progress, cancellationToken), cancellationToken);
+            await LogStartWorkCleanupBlockedAsync(session, previousSession, cancellationToken);
+            throw new InvalidOperationException("Previous session was not completed successfully. Local files may contain unpushed changes. Please recover or finish the previous session before starting a new one.");
         }
 
-        var backend = _backendFactory.Create(profile);
-        await _logService.AppendAsync(session.PullLogPath, $"Pull backend: {backend.Name}", cancellationToken);
-        await PullFoldersAsync(profile, backend, normalized, session.PullLogPath, "Pulling folder", progress, cancellationToken);
+        RefreshManifestSessionMetadata(session);
+        await SaveSessionAsync(session, cancellationToken);
+
+        try
+        {
+            progress?.Report(new SyncProgress { Phase = "Cleaning unselected local content", Detail = "Preparing local cache", Completed = 0, Total = 0 });
+            var cleanupPlan = await _startWorkCleanupService.BuildCleanupPlanAsync(
+                profile.LocalRoot,
+                normalized,
+                session.SessionId,
+                profile.MoveCleanedContentToLocalTrash,
+                cancellationToken);
+            await LogStartWorkCleanupPlanAsync(session, previousSession, cleanupPlan, cancellationToken);
+            await _startWorkCleanupService.ExecuteCleanupPlanAsync(cleanupPlan, session.AppLogPath, cancellationToken);
+
+            progress?.Report(new SyncProgress { Phase = "Synchronizing remote for manifest", Detail = $"{normalized.Count} folder(s)", Completed = 0, Total = 0 });
+            session.Manifest.RemoteFilesAtPull = [.. await _fileScanner.ScanAsync(profile.RemoteRoot, normalized, computeHashes: true, progress, cancellationToken)];
+
+            if (session.PreserveDirectorySkeleton)
+            {
+                progress?.Report(new SyncProgress { Phase = "Synchronizing directory skeleton", Detail = $"Enumerating remote directories to depth {session.SkeletonDepth}...", Completed = 0, Total = 0 });
+                await Task.Run(() => CreateDirectorySkeletonAsync(profile.RemoteRoot, profile.LocalRoot, session.SkeletonDepth, session.AppLogPath, progress, cancellationToken), cancellationToken);
+            }
+
+            var backend = _backendFactory.Create(profile);
+            await _logService.AppendAsync(session.PullLogPath, $"Pull backend: {backend.Name}", cancellationToken);
+            await PullFoldersAsync(profile, backend, normalized, session.PullLogPath, "Pulling folder", progress, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            await MarkSessionFailedAsync(session, exception);
+            throw;
+        }
 
         RefreshManifestSessionMetadata(session);
         await SaveSessionAsync(session, cancellationToken);
@@ -256,6 +291,7 @@ public sealed class WorkSessionService
         await _historyManager.CleanOldHistoryAsync(session.HistoryRoot, profile.HistoryRetentionDays, session.PushLogPath, cancellationToken);
 
         session.EndedAt = DateTimeOffset.Now;
+        session.Status = SessionStatusService.Completed;
         session.Events.Add(CreateSessionEvent("EndWork", session.SelectedPaths, session.PushLogPath));
         session.Manifest.FinalPushLogPath = session.PushLogPath;
         RefreshManifestSessionMetadata(session);
@@ -279,6 +315,68 @@ public sealed class WorkSessionService
         await using var stream = File.Create(sessionPath);
         await JsonSerializer.SerializeAsync(stream, session, ConfigService.SerializerOptions, cancellationToken);
     }
+
+    private async Task LogStartWorkCleanupPlanAsync(
+        WorkSession session,
+        PreviousSessionStatus? previousSession,
+        StartWorkCleanupPlan cleanupPlan,
+        CancellationToken cancellationToken)
+    {
+        await _logService.AppendAsync(session.AppLogPath, "Start Work cleanup:", cancellationToken);
+        await _logService.AppendAsync(session.AppLogPath, $"Session: {session.SessionId}", cancellationToken);
+        await _logService.AppendAsync(session.AppLogPath, $"Previous session status: {FormatPreviousSessionStatus(previousSession)}", cancellationToken);
+        await _logService.AppendAsync(session.AppLogPath, $"Mode: {(cleanupPlan.MoveCleanedContentToLocalTrash ? "move to local trash" : "delete permanently")}", cancellationToken);
+        await _logService.AppendAsync(session.AppLogPath, "Selected paths preserved:", cancellationToken);
+        foreach (var path in cleanupPlan.SelectedPaths)
+        {
+            await _logService.AppendAsync(session.AppLogPath, $"- {path}", cancellationToken);
+        }
+
+        await _logService.AppendAsync(session.AppLogPath, "Cleaned unselected local content:", cancellationToken);
+        if (cleanupPlan.Items.Count == 0)
+        {
+            await _logService.AppendAsync(session.AppLogPath, "- (none)", cancellationToken);
+            return;
+        }
+
+        foreach (var item in cleanupPlan.Items)
+        {
+            await _logService.AppendAsync(session.AppLogPath, $"- {item.RelativePath}", cancellationToken);
+        }
+    }
+
+    private async Task LogStartWorkCleanupBlockedAsync(
+        WorkSession session,
+        PreviousSessionStatus? previousSession,
+        CancellationToken cancellationToken)
+    {
+        await _logService.AppendAsync(session.AppLogPath, "Start Work cleanup blocked:", cancellationToken);
+        await _logService.AppendAsync(session.AppLogPath, $"Previous session status: {FormatPreviousSessionStatus(previousSession)}", cancellationToken);
+        await _logService.AppendAsync(session.AppLogPath, "No local files were cleaned.", cancellationToken);
+    }
+
+    private async Task MarkSessionFailedAsync(WorkSession session, Exception exception)
+    {
+        session.Status = exception is OperationCanceledException
+            ? SessionStatusService.Interrupted
+            : SessionStatusService.Failed;
+        RefreshManifestSessionMetadata(session);
+
+        try
+        {
+            await SaveSessionAsync(session, CancellationToken.None);
+            await _logService.WriteExceptionAsync(session.AppLogPath, exception, CancellationToken.None);
+        }
+        catch
+        {
+            // Preserve the original failure; status persistence is best effort here.
+        }
+    }
+
+    private static string FormatPreviousSessionStatus(PreviousSessionStatus? previousSession)
+        => previousSession is null
+            ? "None"
+            : $"{previousSession.Status} ({previousSession.SessionId})";
 
     private async Task CreateDirectorySkeletonAsync(
         string remoteRoot,
@@ -731,6 +829,7 @@ public sealed class WorkSessionService
 
     private static void RefreshManifestSessionMetadata(WorkSession session)
     {
+        session.Manifest.Status = session.Status;
         session.Manifest.SkeletonDepth = session.SkeletonDepth;
         session.Manifest.InitialSelectedPaths = [.. session.InitialSelectedPaths];
         session.Manifest.AddedSelectedPaths = [.. session.AddedSelectedPaths];

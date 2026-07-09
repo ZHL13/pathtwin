@@ -3,6 +3,7 @@ namespace PathTwin.App.Models;
 public sealed class SessionManifest
 {
     public string SessionId { get; set; } = string.Empty;
+    public string Status { get; set; } = "Active";
     public DateTimeOffset CapturedAt { get; set; }
     public int SkeletonDepth { get; set; } = 2;
     public List<string> InitialSelectedPaths { get; set; } = [];

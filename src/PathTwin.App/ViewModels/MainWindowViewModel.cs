@@ -19,9 +19,11 @@ public sealed class MainWindowViewModel : ViewModelBase
     private readonly WorkSessionService _sessionService;
     private AppConfig _config = new();
     private MainViewState _state = MainViewState.Setup;
+    private MainViewState _stateBeforeSettings = MainViewState.Setup;
     private bool _isSettingsOpen;
     private bool _isBusy;
     private string _statusText = "Loading";
+    private string _statusTextBeforeSettings = "Loading";
     private string _currentOperation = string.Empty;
     private string _progressDetail = string.Empty;
     private int _progressCompleted;
@@ -362,31 +364,47 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             IsBusy = true;
             CurrentOperation = "Saving settings";
-            var profile = _config.ActiveProfile;
-            profile.RemoteRoot = RemoteRoot.Trim();
-            profile.LocalRoot = LocalRoot.Trim();
-            profile.HistoryRoot = HistoryRoot.Trim();
-            profile.LogRoot = LogRoot.Trim();
-            profile.RclonePath = RclonePath.Trim();
-            profile.PreserveDirectorySkeleton = PreserveDirectorySkeleton;
-            profile.SkeletonDepth = SkeletonDepth;
-            profile.HistoryRetentionDays = HistoryRetentionDays;
-            profile.LocalCleanupDays = LocalCleanupDays;
-            profile.EnableAutomaticStartup = EnableAutomaticStartup;
-            profile.StartupWindowStart = StartupWindowStart.Trim();
-            profile.StartupWindowEnd = StartupWindowEnd.Trim();
-            profile.StartOnWake = StartOnWake;
-            profile.StartOnUnlock = StartOnUnlock;
-            profile.StartOnLogon = StartOnLogon;
-            profile.SingleInstanceMode = SingleInstanceMode;
+            var originalProfile = CloneProfile(_config.ActiveProfile);
+            var editedProfile = CloneProfile(_config.ActiveProfile);
+            ApplySettingsPropertiesToProfile(editedProfile);
 
+            var shouldEndActiveSession = ActiveSession is not null
+                && HasSessionAffectingProfileChanges(originalProfile, editedProfile);
+
+            if (shouldEndActiveSession)
+            {
+                _isSettingsOpen = false;
+                State = MainViewState.SyncRunning;
+                NotifyViewVisibilityChanged();
+                CurrentOperation = "Ending current session before applying profile changes";
+
+                var ended = await EndActiveSessionForProfileChangeAsync(originalProfile);
+                if (!ended)
+                {
+                    return;
+                }
+
+                ActiveSession = null;
+                DirectoryTree.Clear();
+                SelectedPaths.Clear();
+                editedProfile.LastSelectedPaths.Clear();
+            }
+
+            CopyProfileValues(editedProfile, _config.ActiveProfile);
             await _configService.SaveAsync(_config);
             _isSettingsOpen = false;
-            State = IsConfigured ? MainViewState.Ready : MainViewState.Setup;
+            var nextState = shouldEndActiveSession
+                ? IsConfigured ? MainViewState.Ready : MainViewState.Setup
+                : ResolveStateAfterSettings();
+            State = nextState;
             NotifyViewVisibilityChanged();
-            StatusText = "Settings saved";
-            AddActivity("Settings saved.");
-            if (IsConfigured)
+            StatusText = shouldEndActiveSession
+                ? "Settings saved. Previous session ended."
+                : GetStatusTextAfterSettings(nextState, settingsSaved: true);
+            AddActivity(shouldEndActiveSession
+                ? "Settings saved after ending the active session."
+                : "Settings saved.");
+            if (nextState == MainViewState.Ready)
             {
                 await LoadTreeAsync();
             }
@@ -406,18 +424,116 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         LoadProfileIntoProperties(_config.ActiveProfile);
         _isSettingsOpen = false;
-        State = IsConfigured ? MainViewState.Ready : MainViewState.Setup;
+        var nextState = ResolveStateAfterSettings();
+        State = nextState;
         NotifyViewVisibilityChanged();
-        StatusText = IsConfigured ? "Ready" : "Profile setup required";
+        StatusText = GetStatusTextAfterSettings(nextState, settingsSaved: false);
+        RaiseCommands();
     }
 
     private void OpenSettings()
     {
+        _stateBeforeSettings = State;
+        _statusTextBeforeSettings = StatusText;
         LoadProfileIntoProperties(_config.ActiveProfile);
         _isSettingsOpen = true;
         NotifyViewVisibilityChanged();
         RaiseCommands();
         StatusText = "Settings";
+    }
+
+    private async Task<bool> EndActiveSessionForProfileChangeAsync(ProfileConfig originalProfile)
+    {
+        if (ActiveSession is null)
+        {
+            return true;
+        }
+
+        ProgressDetail = "";
+        ProgressCompleted = 0;
+        ProgressTotal = 0;
+        IsProgressIndeterminate = true;
+
+        var progress = new Progress<SyncProgress>(p =>
+        {
+            CurrentOperation = p.Phase;
+            ProgressDetail = p.Detail;
+            ProgressCompleted = p.Completed;
+            ProgressTotal = p.Total;
+            IsProgressIndeterminate = p.IsIndeterminate;
+        });
+
+        var result = await _sessionService.EndAsync(ActiveSession, originalProfile, progress);
+        if (!result.Succeeded)
+        {
+            State = MainViewState.Error;
+            StatusText = result.Message;
+            ErrorItems.Clear();
+            foreach (var conflict in result.Plan.Conflicts)
+            {
+                ErrorItems.Add(new ErrorReportItem
+                {
+                    Path = conflict.RelativePath,
+                    Details = conflict.Reason
+                });
+            }
+
+            var report = new ErrorReport
+            {
+                Title = "Profile changes require ending the active session",
+                LogFolder = result.LogFolder,
+                Items = ErrorItems.ToList()
+            };
+            _shellService.OpenFolder(result.LogFolder);
+            if (ShowErrorAsync is not null)
+            {
+                await ShowErrorAsync(report);
+            }
+
+            return false;
+        }
+
+        AddActivity(result.Message);
+        return true;
+    }
+
+    private MainViewState ResolveStateAfterSettings()
+    {
+        if (!IsConfigured)
+        {
+            return MainViewState.Setup;
+        }
+
+        if (_stateBeforeSettings == MainViewState.SessionActive && ActiveSession is not null)
+        {
+            return MainViewState.SessionActive;
+        }
+
+        if (_stateBeforeSettings == MainViewState.Error)
+        {
+            return MainViewState.Error;
+        }
+
+        return MainViewState.Ready;
+    }
+
+    private string GetStatusTextAfterSettings(MainViewState nextState, bool settingsSaved)
+    {
+        if (nextState == MainViewState.SessionActive && ActiveSession is not null)
+        {
+            return settingsSaved
+                ? $"Settings saved. Session {ActiveSession.SessionId} active"
+                : $"Session {ActiveSession.SessionId} active";
+        }
+
+        if (!settingsSaved && !string.IsNullOrWhiteSpace(_statusTextBeforeSettings))
+        {
+            return _statusTextBeforeSettings;
+        }
+
+        return settingsSaved
+            ? "Settings saved"
+            : IsConfigured ? "Ready" : "Profile setup required";
     }
 
     private async Task LoadTreeAsync()
@@ -742,7 +858,13 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     private ProfileConfig CaptureProfile()
     {
-        var profile = _config.ActiveProfile;
+        var profile = CloneProfile(_config.ActiveProfile);
+        ApplySettingsPropertiesToProfile(profile);
+        return profile;
+    }
+
+    private void ApplySettingsPropertiesToProfile(ProfileConfig profile)
+    {
         profile.RemoteRoot = RemoteRoot.Trim();
         profile.LocalRoot = LocalRoot.Trim();
         profile.HistoryRoot = HistoryRoot.Trim();
@@ -753,14 +875,63 @@ public sealed class MainWindowViewModel : ViewModelBase
         profile.HistoryRetentionDays = HistoryRetentionDays;
         profile.LocalCleanupDays = LocalCleanupDays;
         profile.EnableAutomaticStartup = EnableAutomaticStartup;
-        profile.StartupWindowStart = StartupWindowStart;
-        profile.StartupWindowEnd = StartupWindowEnd;
+        profile.StartupWindowStart = StartupWindowStart.Trim();
+        profile.StartupWindowEnd = StartupWindowEnd.Trim();
         profile.StartOnWake = StartOnWake;
         profile.StartOnUnlock = StartOnUnlock;
         profile.StartOnLogon = StartOnLogon;
         profile.SingleInstanceMode = SingleInstanceMode;
-        return profile;
     }
+
+    private static ProfileConfig CloneProfile(ProfileConfig profile)
+    {
+        var clone = new ProfileConfig();
+        CopyProfileValues(profile, clone);
+        return clone;
+    }
+
+    private static void CopyProfileValues(ProfileConfig source, ProfileConfig target)
+    {
+        target.Id = source.Id;
+        target.Name = source.Name;
+        target.RemoteRoot = source.RemoteRoot;
+        target.LocalRoot = source.LocalRoot;
+        target.HistoryRoot = source.HistoryRoot;
+        target.LogRoot = source.LogRoot;
+        target.RclonePath = source.RclonePath;
+        target.PreserveDirectorySkeleton = source.PreserveDirectorySkeleton;
+        target.SkeletonDepth = source.SkeletonDepth;
+        target.PullMode = source.PullMode;
+        target.PushMode = source.PushMode;
+        target.HistoryRetentionDays = source.HistoryRetentionDays;
+        target.LocalCleanupDays = source.LocalCleanupDays;
+        target.MoveCleanedContentToLocalTrash = source.MoveCleanedContentToLocalTrash;
+        target.EnableAutomaticStartup = source.EnableAutomaticStartup;
+        target.StartupWindowStart = source.StartupWindowStart;
+        target.StartupWindowEnd = source.StartupWindowEnd;
+        target.StartOnWake = source.StartOnWake;
+        target.StartOnUnlock = source.StartOnUnlock;
+        target.StartOnLogon = source.StartOnLogon;
+        target.SingleInstanceMode = source.SingleInstanceMode;
+        target.LastSelectedPaths = [.. source.LastSelectedPaths];
+    }
+
+    private static bool HasSessionAffectingProfileChanges(ProfileConfig oldProfile, ProfileConfig newProfile)
+        => !SameSetting(oldProfile.RemoteRoot, newProfile.RemoteRoot)
+            || !SameSetting(oldProfile.LocalRoot, newProfile.LocalRoot)
+            || !SameSetting(oldProfile.HistoryRoot, newProfile.HistoryRoot)
+            || !SameSetting(oldProfile.LogRoot, newProfile.LogRoot)
+            || !SameSetting(oldProfile.RclonePath, newProfile.RclonePath)
+            || oldProfile.PreserveDirectorySkeleton != newProfile.PreserveDirectorySkeleton
+            || oldProfile.SkeletonDepth != newProfile.SkeletonDepth
+            || oldProfile.PullMode != newProfile.PullMode
+            || oldProfile.PushMode != newProfile.PushMode
+            || oldProfile.HistoryRetentionDays != newProfile.HistoryRetentionDays
+            || oldProfile.LocalCleanupDays != newProfile.LocalCleanupDays
+            || oldProfile.MoveCleanedContentToLocalTrash != newProfile.MoveCleanedContentToLocalTrash;
+
+    private static bool SameSetting(string left, string right)
+        => string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private void LoadProfileIntoProperties(ProfileConfig profile)
     {
