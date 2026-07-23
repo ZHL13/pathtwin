@@ -49,8 +49,8 @@ public sealed class LogService
         SyncPlan plan,
         CancellationToken cancellationToken = default)
     {
-        await AppendAsync(logPath, $"Plan: upload={plan.UploadCount}, delete={plan.DeleteCount}, skip={plan.SkipCount}, conflicts={plan.Conflicts.Count}", cancellationToken);
-        foreach (var operation in plan.Operations)
+        await AppendAsync(logPath, $"Plan: upload={plan.UploadCount}, delete={plan.DeleteCount}, conflicts={plan.Conflicts.Count}", cancellationToken);
+        foreach (var operation in plan.Operations.Where(operation => operation.Kind != SyncOperationKind.Skip))
         {
             await AppendAsync(logPath, $"{operation.Kind}: {operation.RelativePath} - {operation.Reason}", cancellationToken);
         }

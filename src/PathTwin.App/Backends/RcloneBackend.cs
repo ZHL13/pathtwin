@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using PathTwin.App.Logging;
@@ -95,7 +96,7 @@ public sealed class RcloneBackend : ISyncBackend, IRemoteFileScanBackend
                 arguments.Add("--hash");
             }
 
-            var output = await RunAsync(arguments, logPath, cancellationToken);
+            var output = await RunAsync(arguments, logPath: string.Empty, cancellationToken);
             var entries = JsonSerializer.Deserialize<List<RcloneFileEntry>>(output) ?? [];
             foreach (var entry in entries)
             {
@@ -138,6 +139,10 @@ public sealed class RcloneBackend : ISyncBackend, IRemoteFileScanBackend
             Phase = $"Comparing remote ({scanned} scanned)",
             Detail = "Scan complete"
         });
+        if (!string.IsNullOrWhiteSpace(logPath))
+        {
+            await _logService.AppendAsync(logPath, $"rclone metadata scan complete: {scanned} file(s).", cancellationToken);
+        }
         return files.Values.OrderBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
@@ -308,6 +313,7 @@ public sealed class RcloneBackend : ISyncBackend, IRemoteFileScanBackend
                 ? "Verifying rclone Hybrid metadata mismatches by checksum"
                 : "Removing rclone Hybrid mirror-only files";
             var outputLineCount = 0;
+            var modifiedFiles = new ConcurrentQueue<string>();
             using var heartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var heartbeatTask = ReportRcloneFileListHeartbeatAsync(
                 options,
@@ -324,7 +330,10 @@ public sealed class RcloneBackend : ISyncBackend, IRemoteFileScanBackend
                         options,
                         phase,
                         line,
-                        Interlocked.Increment(ref outputLineCount)));
+                        Interlocked.Increment(ref outputLineCount)),
+                    logExecution: false,
+                    logOutput: false,
+                    modificationLineHandler: modifiedFiles.Enqueue);
             }
             finally
             {
@@ -337,6 +346,11 @@ public sealed class RcloneBackend : ISyncBackend, IRemoteFileScanBackend
                 {
                     // The heartbeat is expected to end with the rclone command.
                 }
+            }
+
+            foreach (var line in modifiedFiles)
+            {
+                await _logService.AppendAsync(options.LogPath, line, cancellationToken);
             }
         }
         finally
@@ -374,7 +388,7 @@ public sealed class RcloneBackend : ISyncBackend, IRemoteFileScanBackend
     {
         var output = await RunAsync(
             ["lsf", source, "--dirs-only", "--recursive"],
-            options.LogPath,
+            logPath: string.Empty,
             cancellationToken);
         var directories = SplitRcloneLines(output)
             .Select(path => path.TrimEnd('/', '\\'))
@@ -555,14 +569,17 @@ public sealed class RcloneBackend : ISyncBackend, IRemoteFileScanBackend
         IReadOnlyList<string> arguments,
         string logPath,
         CancellationToken cancellationToken,
-        Action<string>? outputLineHandler = null)
+        Action<string>? outputLineHandler = null,
+        bool logExecution = true,
+        bool logOutput = true,
+        Action<string>? modificationLineHandler = null)
     {
         if (!IsAvailable)
         {
             throw new FileNotFoundException("Configured rclone executable was not found.", _rclonePath);
         }
 
-        if (!string.IsNullOrWhiteSpace(logPath))
+        if (!string.IsNullOrWhiteSpace(logPath) && logExecution)
         {
             await _logService.AppendAsync(logPath, $"Backend: {Name}", cancellationToken);
             await _logService.AppendAsync(logPath, $"Command: {Quote(_rclonePath)} {string.Join(' ', arguments.Select(Quote))}", cancellationToken);
@@ -591,18 +608,20 @@ public sealed class RcloneBackend : ISyncBackend, IRemoteFileScanBackend
             process.StandardOutput,
             stdoutBuffer,
             outputLineHandler,
+            modificationLineHandler,
             cancellationToken);
         var stderrTask = ReadProcessOutputAsync(
             process.StandardError,
             stderrBuffer,
             outputLineHandler,
+            modificationLineHandler,
             cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
         await Task.WhenAll(stdoutTask, stderrTask);
         var stdout = stdoutBuffer.ToString();
         var stderr = stderrBuffer.ToString();
 
-        if (!string.IsNullOrWhiteSpace(logPath))
+        if (!string.IsNullOrWhiteSpace(logPath) && logOutput)
         {
             if (!string.IsNullOrWhiteSpace(stdout))
             {
@@ -627,6 +646,7 @@ public sealed class RcloneBackend : ISyncBackend, IRemoteFileScanBackend
         StreamReader reader,
         StringBuilder buffer,
         Action<string>? outputLineHandler,
+        Action<string>? modificationLineHandler,
         CancellationToken cancellationToken)
     {
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
@@ -638,8 +658,18 @@ public sealed class RcloneBackend : ISyncBackend, IRemoteFileScanBackend
 
             buffer.Append(line);
             outputLineHandler?.Invoke(line);
+            if (IsRcloneFileModificationLine(line))
+            {
+                modificationLineHandler?.Invoke(line.Trim());
+            }
         }
     }
+
+    private static bool IsRcloneFileModificationLine(string line)
+        => line.Contains(": Copied", StringComparison.OrdinalIgnoreCase)
+            || line.Contains(": Deleted", StringComparison.OrdinalIgnoreCase)
+            || line.Contains(": Moved", StringComparison.OrdinalIgnoreCase)
+            || line.Contains(": Renamed", StringComparison.OrdinalIgnoreCase);
 
     private static string Quote(string value)
     {

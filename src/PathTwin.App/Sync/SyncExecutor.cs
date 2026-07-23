@@ -228,7 +228,6 @@ public sealed class SyncExecutor
         PathSafety.EnsureInsideRoot(session.RemoteRoot, remotePath, "delete remote file");
         if (!File.Exists(remotePath))
         {
-            await _logService.AppendAsync(logPath, $"Remote already absent: {operation.RelativePath}", cancellationToken);
             return;
         }
 
@@ -249,7 +248,6 @@ public sealed class SyncExecutor
         PathSafety.EnsureInsideRoot(session.RemoteRoot, remotePath, "delete remote file");
         if (!File.Exists(remotePath))
         {
-            await _logService.AppendAsync(logPath, $"Remote already absent: {operation.RelativePath}", cancellationToken);
             return;
         }
 

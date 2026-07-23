@@ -58,11 +58,10 @@ public sealed class StartWorkCleanupService
             {
                 ValidatePlanItem(plan, item);
 
-                if (!Directory.Exists(item.SourcePath) && !File.Exists(item.SourcePath))
-                {
-                    await _logService.AppendAsync(logPath, $"Start Work cleanup skipped missing item: {item.RelativePath}", cancellationToken);
-                    continue;
-                }
+            if (!Directory.Exists(item.SourcePath) && !File.Exists(item.SourcePath))
+            {
+                continue;
+            }
 
                 await _recycleBinService.RecycleAsync(item, cancellationToken);
             }

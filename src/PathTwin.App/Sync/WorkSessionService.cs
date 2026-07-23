@@ -464,7 +464,6 @@ public sealed class WorkSessionService
 
         var conflictDetected = 0;
         var startedOperations = 0;
-        var taskNumber = 0;
 
         async Task CompareAndQueueAsync(string relativePath, FileState? localState, FileState? remoteState)
         {
@@ -506,8 +505,6 @@ public sealed class WorkSessionService
                 return;
             }
 
-            var operationTaskNumber = Interlocked.Increment(ref taskNumber);
-            var taskLogPath = GetParallelTaskLogPath(session.PushLogPath, operationTaskNumber);
             var transferTask = Task.Run(async () =>
             {
                 await transferGate.WaitAsync(cancellationToken);
@@ -525,9 +522,7 @@ public sealed class WorkSessionService
                     }
 
                     Interlocked.Increment(ref startedOperations);
-                    await _logService.AppendAsync(session.PushLogPath, $"Streaming file task {operationTaskNumber}: {operation.Kind} {operation.RelativePath}; log: {taskLogPath}", cancellationToken);
-                    await _executor.ExecuteOperationAsync(operation, session, session.HistoryRoot, taskLogPath, backend, progress, cancellationToken);
-                    await _logService.AppendAsync(session.PushLogPath, $"Streaming file task {operationTaskNumber} complete: {operation.RelativePath}", cancellationToken);
+                    await _executor.ExecuteOperationAsync(operation, session, session.HistoryRoot, session.PushLogPath, backend, progress, cancellationToken);
                 }
                 finally
                 {
@@ -1088,8 +1083,7 @@ public sealed class WorkSessionService
             var source = PathSafety.CombineRootAndRelative(session.LocalRoot, relativePath);
             if (!Directory.Exists(source))
             {
-                    await _logService.AppendAsync(taskLogPath, $"Skipped missing local folder: {relativePath}", token);
-                    return;
+                return;
             }
 
             var destination = PathSafety.CombineRootAndRelative(session.RemoteRoot, relativePath);
@@ -1140,7 +1134,6 @@ public sealed class WorkSessionService
         }, async (relativePath, token) =>
         {
             var taskNumber = Interlocked.Increment(ref started);
-            var taskLogPath = GetParallelTaskLogPath(sessionLogPath, taskNumber);
             progress?.Report(new SyncProgress
             {
                 Kind = SyncProgressKind.Modification,
@@ -1150,11 +1143,9 @@ public sealed class WorkSessionService
                 Total = roots.Count
             });
 
-            await _logService.AppendAsync(sessionLogPath, $"Parallel task {taskNumber}/{roots.Count}: {relativePath}; log: {taskLogPath}", token);
-            await synchronizeAsync(relativePath, taskLogPath, token);
+            await synchronizeAsync(relativePath, sessionLogPath, token);
 
             var completedCount = Interlocked.Increment(ref completed);
-            await _logService.AppendAsync(sessionLogPath, $"Parallel task {taskNumber}/{roots.Count} complete: {relativePath}", token);
             progress?.Report(new SyncProgress
             {
                 Kind = SyncProgressKind.Modification,
@@ -1164,14 +1155,6 @@ public sealed class WorkSessionService
                 Total = roots.Count
             });
         });
-    }
-
-    private static string GetParallelTaskLogPath(string sessionLogPath, int taskNumber)
-    {
-        var directory = Path.GetDirectoryName(sessionLogPath) ?? ".";
-        var name = Path.GetFileNameWithoutExtension(sessionLogPath);
-        var extension = Path.GetExtension(sessionLogPath);
-        return Path.Combine(directory, $"{name}_task-{taskNumber:D2}{extension}");
     }
 
     private UnselectedPushPlan BuildUnselectedPushPlan(
