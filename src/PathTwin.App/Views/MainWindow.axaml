@@ -359,7 +359,10 @@
               <Border BorderBrush="#D6DAE2" BorderThickness="0,0,0,1" Padding="0,0,0,8">
                 <Grid RowDefinitions="Auto,*" RowSpacing="4">
                   <TextBlock Text="File comparison" FontSize="14" FontWeight="SemiBold" Foreground="#4D5665" />
-                  <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto">
+                  <ScrollViewer x:Name="ComparisonScrollViewer"
+                                Grid.Row="1"
+                                HorizontalScrollBarVisibility="Auto"
+                                ScrollChanged="ComparisonScrollViewer_ScrollChanged">
                     <ItemsControl ItemsSource="{Binding ComparisonLines}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -372,7 +375,10 @@
               </Border>
               <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="4">
                 <TextBlock Text="File changes" FontSize="14" FontWeight="SemiBold" Foreground="#4D5665" />
-                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto">
+                  <ScrollViewer x:Name="ModificationScrollViewer"
+                                Grid.Row="1"
+                                HorizontalScrollBarVisibility="Auto"
+                                ScrollChanged="ModificationScrollViewer_ScrollChanged">
                   <ItemsControl ItemsSource="{Binding ModificationLines}">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate>

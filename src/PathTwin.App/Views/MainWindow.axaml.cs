@@ -8,8 +8,11 @@ namespace PathTwin.App.Views;
 
 public sealed partial class MainWindow : Window
 {
+    private const double ScrollBottomTolerance = 1;
     private bool _closeApproved;
     private bool _closeConfirmationOpen;
+    private bool _comparisonFollowsTail = true;
+    private bool _modificationFollowsTail = true;
 
     public MainWindow()
     {
@@ -89,6 +92,33 @@ public sealed partial class MainWindow : Window
     {
         var window = new ErrorWindow(report);
         await window.ShowDialog(this);
+    }
+
+    private void ComparisonScrollViewer_ScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (sender is ScrollViewer scrollViewer)
+        {
+            UpdateTailFollowing(scrollViewer, e, ref _comparisonFollowsTail);
+        }
+    }
+
+    private void ModificationScrollViewer_ScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (sender is ScrollViewer scrollViewer)
+        {
+            UpdateTailFollowing(scrollViewer, e, ref _modificationFollowsTail);
+        }
+    }
+
+    private static void UpdateTailFollowing(ScrollViewer scrollViewer, ScrollChangedEventArgs e, ref bool followsTail)
+    {
+        if (followsTail && e.ExtentDelta.Y > 0)
+        {
+            scrollViewer.ScrollToEnd();
+            return;
+        }
+
+        followsTail = scrollViewer.Offset.Y >= scrollViewer.Extent.Height - scrollViewer.Viewport.Height - ScrollBottomTolerance;
     }
 
     private async void MainWindow_Closing(object? sender, WindowClosingEventArgs e)

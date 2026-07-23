@@ -1108,16 +1108,16 @@ public sealed class MainWindowViewModel : ViewModelBase
             switch (p.Kind)
             {
                 case SyncProgressKind.Comparison:
-                    AddSyncLine(ComparisonLines, p.Phase, p.Detail, includePhase: false);
+                    AddSyncLine(ComparisonLines, p.Detail);
                     break;
                 case SyncProgressKind.Modification:
-                    AddSyncLine(ModificationLines, p.Phase, p.Detail, includePhase: true);
+                    AddSyncLine(ModificationLines, p.Detail);
                     break;
             }
         });
     }
 
-    private static void AddSyncLine(ObservableCollection<string> target, string phase, string detail, bool includePhase)
+    private static void AddSyncLine(ObservableCollection<string> target, string detail)
     {
         if (string.IsNullOrWhiteSpace(detail) || detail == "Scan complete")
         {
@@ -1130,7 +1130,7 @@ public sealed class MainWindowViewModel : ViewModelBase
             target.RemoveAt(0);
         }
 
-        target.Add(includePhase ? $"{phase}: {detail}" : detail);
+        target.Add(detail);
     }
 
     private void LoadProfileIntoProperties(ProfileConfig profile)

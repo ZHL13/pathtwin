@@ -523,8 +523,19 @@ public sealed class RcloneBackend : ISyncBackend, IRemoteFileScanBackend
         {
             Kind = SyncProgressKind.Modification,
             Phase = phase,
-            Detail = WithProgressPathPrefix(options, detail)
+            Detail = WithProgressPathPrefix(options, GetRcloneFileProgressPath(detail))
         });
+    }
+
+    private static string GetRcloneFileProgressPath(string line)
+    {
+        const string logPrefixSeparator = " : ";
+        var prefixIndex = line.IndexOf(logPrefixSeparator, StringComparison.Ordinal);
+        var message = prefixIndex < 0
+            ? line
+            : line[(prefixIndex + logPrefixSeparator.Length)..];
+        var actionIndex = message.LastIndexOf(": ", StringComparison.Ordinal);
+        return actionIndex <= 0 ? message : message[..actionIndex];
     }
 
     private static bool IsRcloneStatusLine(string line)
