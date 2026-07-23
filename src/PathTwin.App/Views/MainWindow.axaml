@@ -84,6 +84,11 @@
       <DockPanel LastChildFill="True">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
           <Button Classes="header-btn" Content="Edit Profile" Command="{Binding OpenSettingsCommand}" IsVisible="{Binding IsSettingsButtonVisible}" />
+          <TextBlock Text="{Binding SyncToolText}"
+                     IsVisible="{Binding IsSyncRunningVisible}"
+                     Foreground="#C8D3DF"
+                     VerticalAlignment="Center"
+                     Margin="0,0,4,0" />
           <Button Classes="header-btn" Content="Logs" Command="{Binding OpenLogFolderCommand}" />
         </StackPanel>
         <StackPanel Orientation="Horizontal" Spacing="14">
@@ -98,7 +103,7 @@
         <TextBlock Text="{Binding SettingsPanelTitle}" FontSize="22" FontWeight="SemiBold" Foreground="#17202A" />
         <ScrollViewer Grid.Row="1" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto">
           <Border Classes="panel">
-          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*"
+          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*"
                 ColumnDefinitions="160,*,Auto"
                 RowSpacing="12"
                 ColumnSpacing="10">
@@ -122,52 +127,57 @@
             <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding RclonePath, Mode=TwoWay}" />
             <Button Grid.Row="4" Grid.Column="2" Content="Browse" Click="BrowseRclonePath_Click" />
 
-            <CheckBox Grid.Row="5" Grid.Column="1" IsChecked="{Binding PreserveDirectorySkeleton, Mode=TwoWay}" Content="Preserve directory skeleton" />
+            <CheckBox Grid.Row="5" Grid.Column="1" IsChecked="{Binding UseRclone, Mode=TwoWay}" Content="Use rclone for remote scan and transfer" />
 
-            <TextBlock Grid.Row="6" Grid.Column="0" Classes="label" Text="Skeleton Depth" />
-            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding SkeletonDepth, Mode=TwoWay}" />
+            <TextBlock Grid.Row="6" Grid.Column="0" Classes="label" Text="Comparison Mode" />
+            <ComboBox Grid.Row="6" Grid.Column="1" ItemsSource="{Binding ComparisonModes}" SelectedItem="{Binding ComparisonMode, Mode=TwoWay}" />
 
-            <TextBlock Grid.Row="7" Grid.Column="0" Classes="label" Text="History Days" />
-            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding HistoryRetentionDays, Mode=TwoWay}" />
+            <CheckBox Grid.Row="7" Grid.Column="1" IsChecked="{Binding PreserveDirectorySkeleton, Mode=TwoWay}" Content="Preserve directory skeleton" />
 
-            <TextBlock Grid.Row="8" Grid.Column="0" Classes="label" Text="Cleanup Days" />
-            <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding LocalCleanupDays, Mode=TwoWay}" />
+            <TextBlock Grid.Row="8" Grid.Column="0" Classes="label" Text="Skeleton Depth" />
+            <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding SkeletonDepth, Mode=TwoWay}" />
+
+            <TextBlock Grid.Row="9" Grid.Column="0" Classes="label" Text="History Days" />
+            <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding HistoryRetentionDays, Mode=TwoWay}" />
+
+            <TextBlock Grid.Row="10" Grid.Column="0" Classes="label" Text="Cleanup Days" />
+            <TextBox Grid.Row="10" Grid.Column="1" Text="{Binding LocalCleanupDays, Mode=TwoWay}" />
 
             <!-- Automatic Startup Section -->
-            <Border Grid.Row="9" Grid.ColumnSpan="3" BorderBrush="#D6DAE2" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="0,6,0,0">
+            <Border Grid.Row="11" Grid.ColumnSpan="3" BorderBrush="#D6DAE2" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="0,6,0,0">
               <TextBlock Text="Automatic Startup" FontSize="16" FontWeight="SemiBold" Foreground="#17202A" />
             </Border>
 
-            <CheckBox Grid.Row="10" Grid.Column="1" IsChecked="{Binding EnableAutomaticStartup, Mode=TwoWay}" Content="Enable automatic startup (scheduled task)" />
+            <CheckBox Grid.Row="12" Grid.Column="1" IsChecked="{Binding EnableAutomaticStartup, Mode=TwoWay}" Content="Enable automatic startup (scheduled task)" />
 
-            <TextBlock Grid.Row="11" Grid.Column="0" Classes="label" Text="Start Window" />
-            <StackPanel Grid.Row="11" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <TextBlock Grid.Row="13" Grid.Column="0" Classes="label" Text="Start Window" />
+            <StackPanel Grid.Row="13" Grid.Column="1" Orientation="Horizontal" Spacing="8">
               <TextBox Text="{Binding StartupWindowStart, Mode=TwoWay}" Width="80" Watermark="19:00" />
               <TextBlock Classes="label" Text="–" VerticalAlignment="Center" />
               <TextBox Text="{Binding StartupWindowEnd, Mode=TwoWay}" Width="80" Watermark="21:00" />
             </StackPanel>
 
-            <CheckBox Grid.Row="12" Grid.Column="1" IsChecked="{Binding StartOnWake, Mode=TwoWay}" Content="Trigger on system wake" />
-            <CheckBox Grid.Row="13" Grid.Column="1" IsChecked="{Binding StartOnUnlock, Mode=TwoWay}" Content="Trigger on session unlock" />
-            <CheckBox Grid.Row="14" Grid.Column="1" IsChecked="{Binding StartOnLogon, Mode=TwoWay}" Content="Trigger on user logon" />
-            <StackPanel Grid.Row="15" Grid.Column="1">
+            <CheckBox Grid.Row="14" Grid.Column="1" IsChecked="{Binding StartOnWake, Mode=TwoWay}" Content="Trigger on system wake" />
+            <CheckBox Grid.Row="15" Grid.Column="1" IsChecked="{Binding StartOnUnlock, Mode=TwoWay}" Content="Trigger on session unlock" />
+            <CheckBox Grid.Row="16" Grid.Column="1" IsChecked="{Binding StartOnLogon, Mode=TwoWay}" Content="Trigger on user logon" />
+            <StackPanel Grid.Row="17" Grid.Column="1">
               <CheckBox IsChecked="{Binding SingleInstanceMode, Mode=TwoWay}" Content="Single-instance mode" />
               <TextBlock Text="Only one window at a time — prevents duplicate instances from scheduled task triggers." Foreground="#8892A0" FontSize="12" Margin="0,2,0,0" />
             </StackPanel>
 
             <!-- Task Scheduler -->
-            <Border Grid.Row="16" Grid.ColumnSpan="3" BorderBrush="#D6DAE2" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="0,6,0,0">
+            <Border Grid.Row="18" Grid.ColumnSpan="3" BorderBrush="#D6DAE2" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="0,6,0,0">
               <TextBlock Text="Windows Scheduled Task" FontSize="16" FontWeight="SemiBold" Foreground="#17202A" />
             </Border>
 
-            <StackPanel Grid.Row="17" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <StackPanel Grid.Row="19" Grid.Column="1" Orientation="Horizontal" Spacing="8">
               <Button Content="Create / Update Task" Command="{Binding CreateTaskCommand}" />
               <Button Content="Delete Task" Command="{Binding DeleteTaskCommand}" />
               <Button Content="Test Run" Command="{Binding TestTaskCommand}" />
             </StackPanel>
-            <TextBlock Grid.Row="18" Grid.Column="1" Text="{Binding TaskStatusText}" Foreground="#4D5665" TextWrapping="Wrap" VerticalAlignment="Center" />
+            <TextBlock Grid.Row="20" Grid.Column="1" Text="{Binding TaskStatusText}" Foreground="#4D5665" TextWrapping="Wrap" VerticalAlignment="Center" />
 
-            <StackPanel Grid.Row="19" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,8,0,0">
+            <StackPanel Grid.Row="21" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,8,0,0">
               <Button Classes="primary" Content="Save Settings" Command="{Binding SaveSettingsCommand}" />
               <Button Content="Cancel" Command="{Binding CancelSettingsCommand}" />
             </StackPanel>
@@ -176,7 +186,7 @@
         </ScrollViewer>
       </Grid>
 
-      <Grid IsVisible="{Binding IsReadyVisible}" Margin="18" RowDefinitions="Auto,*" RowSpacing="12">
+      <Grid IsVisible="{Binding IsReadyVisible}" Margin="18" RowDefinitions="Auto,Auto,*" RowSpacing="12">
         <StackPanel Orientation="Horizontal">
           <Button Content="Reload Tree" Command="{Binding LoadTreeCommand}" />
           <Button Content="Dry Run Pull" Command="{Binding DryRunPullCommand}" />
@@ -184,7 +194,26 @@
           <Button Content="Open Local Root" Command="{Binding OpenLocalRootCommand}" />
         </StackPanel>
 
-        <Grid Grid.Row="1" ColumnDefinitions="2*,*" ColumnSpacing="12">
+        <Border Grid.Row="1"
+                IsVisible="{Binding HasPreviousSessionProblem}"
+                Background="#FFF4E5"
+                BorderBrush="#D9922E"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="14">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+            <StackPanel Spacing="5">
+              <TextBlock Text="{Binding PreviousSessionProblemTitle}" FontSize="16" FontWeight="SemiBold" Foreground="#7A3E00" />
+              <TextBlock Text="{Binding PreviousSessionProblemDetails}" TextWrapping="Wrap" Foreground="#4D3A24" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+              <Button Content="Open Previous Session Logs" Command="{Binding OpenPreviousSessionLogCommand}" />
+              <Button Classes="danger" Content="Ignore Previous Session and Force Sync" Command="{Binding ForceStartSessionCommand}" />
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <Grid Grid.Row="2" ColumnDefinitions="2*,*" ColumnSpacing="12">
           <Border Classes="panel">
             <Grid RowDefinitions="Auto,*">
               <TextBlock Text="Remote Folders" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
@@ -310,23 +339,50 @@
           <Button Content="Open Logs" Command="{Binding OpenLogFolderCommand}" />
         </StackPanel>
         <Border Grid.Row="1" Classes="panel">
-          <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="14">
+          <Grid RowDefinitions="Auto,Auto,*" RowSpacing="14">
             <TextBlock Text="{Binding CurrentOperation}" FontSize="20" FontWeight="SemiBold" />
-            <StackPanel Grid.Row="1" Spacing="6">
-              <ProgressBar IsIndeterminate="{Binding IsProgressIndeterminate}"
-                           Minimum="0" Maximum="{Binding ProgressTotal}" Value="{Binding ProgressCompleted}" Height="10" />
-              <Border Height="20" ClipToBounds="True">
-                <TextBlock Text="{Binding ProgressDetail}"
-                           Foreground="#4D5665"
-                           FontSize="13"
-                           TextWrapping="NoWrap"
-                           TextTrimming="CharacterEllipsis"
-                           VerticalAlignment="Center" />
+            <Border Grid.Row="1" BorderBrush="#D6DAE2" BorderThickness="0,0,0,1" Padding="0,0,0,10">
+              <StackPanel Spacing="6">
+                <ProgressBar IsIndeterminate="{Binding IsProgressIndeterminate}"
+                             Minimum="0" Maximum="{Binding ProgressTotal}" Value="{Binding ProgressCompleted}" Height="10" />
+                <Border Height="20" ClipToBounds="True">
+                  <TextBlock Text="{Binding ProgressDetail}"
+                             Foreground="#4D5665"
+                             FontSize="13"
+                             TextWrapping="NoWrap"
+                             TextTrimming="CharacterEllipsis"
+                             VerticalAlignment="Center" />
+                </Border>
+              </StackPanel>
+            </Border>
+            <Grid Grid.Row="2" RowDefinitions="*,*" RowSpacing="10">
+              <Border BorderBrush="#D6DAE2" BorderThickness="0,0,0,1" Padding="0,0,0,8">
+                <Grid RowDefinitions="Auto,*" RowSpacing="4">
+                  <TextBlock Text="File comparison" FontSize="14" FontWeight="SemiBold" Foreground="#4D5665" />
+                  <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding ComparisonLines}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <TextBlock Text="{Binding}" FontSize="12" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </Grid>
               </Border>
-            </StackPanel>
-            <ScrollViewer Grid.Row="2" MaxHeight="300">
-              <ItemsControl ItemsSource="{Binding ActivityLines}" />
-            </ScrollViewer>
+              <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="4">
+                <TextBlock Text="File changes" FontSize="14" FontWeight="SemiBold" Foreground="#4D5665" />
+                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto">
+                  <ItemsControl ItemsSource="{Binding ModificationLines}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding}" FontSize="12" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </Grid>
+            </Grid>
           </Grid>
         </Border>
       </Grid>

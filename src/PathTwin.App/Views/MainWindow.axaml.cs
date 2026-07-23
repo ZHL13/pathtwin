@@ -8,9 +8,13 @@ namespace PathTwin.App.Views;
 
 public sealed partial class MainWindow : Window
 {
+    private bool _closeApproved;
+    private bool _closeConfirmationOpen;
+
     public MainWindow()
     {
         InitializeComponent();
+        Closing += MainWindow_Closing;
         DataContextChanged += (_, _) =>
         {
             if (DataContext is MainWindowViewModel viewModel)
@@ -18,6 +22,12 @@ public sealed partial class MainWindow : Window
                 viewModel.ShowErrorAsync = ShowErrorAsync;
             }
         };
+    }
+
+    public void CloseWithoutConfirmation()
+    {
+        _closeApproved = true;
+        Close();
     }
 
     private async void BrowseRemoteRoot_Click(object? sender, RoutedEventArgs e)
@@ -79,6 +89,42 @@ public sealed partial class MainWindow : Window
     {
         var window = new ErrorWindow(report);
         await window.ShowDialog(this);
+    }
+
+    private async void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
+    {
+        if (_closeApproved)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        if (_closeConfirmationOpen)
+        {
+            return;
+        }
+
+        _closeConfirmationOpen = true;
+        try
+        {
+            var confirmation = ViewModel?.GetExitConfirmationInfo() ?? new ExitConfirmationInfo
+            {
+                State = "PathTwin is closing",
+                CurrentOperation = "No active operation",
+                Warning = "Force Exit closes the application immediately."
+            };
+            var window = new ExitConfirmationWindow(confirmation);
+            var forceExit = await window.ShowDialog<bool?>(this);
+            if (forceExit == true)
+            {
+                _closeApproved = true;
+                Close();
+            }
+        }
+        finally
+        {
+            _closeConfirmationOpen = false;
+        }
     }
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;

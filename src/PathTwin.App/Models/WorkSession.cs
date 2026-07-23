@@ -6,6 +6,9 @@ public sealed class WorkSession
     public string Status { get; set; } = "Active";
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
+    public DateTimeOffset? FailedAt { get; set; }
+    public string FailurePhase { get; set; } = string.Empty;
+    public string FailureDetails { get; set; } = string.Empty;
     public string RemoteRoot { get; set; } = string.Empty;
     public string LocalRoot { get; set; } = string.Empty;
     public string HistoryRoot { get; set; } = string.Empty;

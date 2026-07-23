@@ -1,0 +1,39 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PathTwin.App.Views.ExitConfirmationWindow"
+        Title="Exit PathTwin"
+        Width="620"
+        Height="350"
+        MinWidth="540"
+        MinHeight="310"
+        CanResize="False"
+        Background="#F5F6F8">
+  <Window.Styles>
+    <Style Selector="Button">
+      <Setter Property="Padding" Value="12,7" />
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="Margin" Value="0,0,8,0" />
+    </Style>
+    <Style Selector="Button.danger">
+      <Setter Property="Background" Value="#9F2D20" />
+      <Setter Property="Foreground" Value="White" />
+    </Style>
+  </Window.Styles>
+
+  <Grid Margin="18" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
+    <TextBlock Text="Exit PathTwin?" FontSize="20" FontWeight="SemiBold" Foreground="#17202A" />
+    <Grid Grid.Row="1" ColumnDefinitions="150,*" RowDefinitions="Auto,Auto" RowSpacing="6" ColumnSpacing="12">
+      <TextBlock Text="Current state" FontWeight="SemiBold" Foreground="#4D5665" />
+      <TextBlock Grid.Column="1" Text="{Binding State}" TextWrapping="Wrap" />
+      <TextBlock Grid.Row="1" Text="Current operation" FontWeight="SemiBold" Foreground="#4D5665" />
+      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CurrentOperation}" TextWrapping="Wrap" />
+    </Grid>
+    <Border Grid.Row="2" Background="#FFF4E5" BorderBrush="#D9922E" BorderThickness="1" CornerRadius="6" Padding="12">
+      <TextBlock Text="{Binding Warning}" TextWrapping="Wrap" Foreground="#4D3A24" />
+    </Border>
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button Content="Keep Working" Click="KeepWorking_Click" />
+      <Button Classes="danger" Content="Force Exit" Click="ForceExit_Click" />
+    </StackPanel>
+  </Grid>
+</Window>

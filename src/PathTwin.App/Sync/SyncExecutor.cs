@@ -1,3 +1,4 @@
+using PathTwin.App.Backends;
 using PathTwin.App.Logging;
 using PathTwin.App.Models;
 using PathTwin.App.Services;
@@ -6,6 +7,7 @@ namespace PathTwin.App.Sync;
 
 public sealed class SyncExecutor
 {
+    private const int MaxConcurrentFileOperations = 1;
     private readonly LogService _logService;
 
     public SyncExecutor(LogService logService)
@@ -24,18 +26,23 @@ public sealed class SyncExecutor
         Directory.CreateDirectory(historyRoot);
 
         var operations = plan.Operations.Where(o => o.Kind != SyncOperationKind.Skip).ToList();
+        var started = 0;
         var completed = 0;
-        foreach (var operation in operations)
+        await Parallel.ForEachAsync(operations, new ParallelOptions
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            MaxDegreeOfParallelism = MaxConcurrentFileOperations,
+            CancellationToken = cancellationToken
+        }, async (operation, token) =>
+        {
+            var startedCount = Interlocked.Increment(ref started);
             var remotePath = PathSafety.CombineRootAndRelative(session.RemoteRoot, operation.RelativePath);
             var localPath = PathSafety.CombineRootAndRelative(session.LocalRoot, operation.RelativePath);
 
             progress?.Report(new SyncProgress
             {
-                Phase = $"Syncing ({completed + 1}/{operations.Count})",
+                Phase = $"Syncing ({Volatile.Read(ref completed)}/{operations.Count} complete, {startedCount} started)",
                 Detail = operation.RelativePath,
-                Completed = completed,
+                Completed = Volatile.Read(ref completed),
                 Total = operations.Count
             });
 
@@ -43,10 +50,10 @@ public sealed class SyncExecutor
             {
                 case SyncOperationKind.UploadNew:
                 case SyncOperationKind.OverwriteRemote:
-                    await UploadAsync(operation, session, localPath, remotePath, historyRoot, logPath, cancellationToken);
+                    await UploadAsync(operation, session, localPath, remotePath, historyRoot, logPath, token);
                     break;
                 case SyncOperationKind.DeleteRemote:
-                    await DeleteRemoteAsync(operation, session, remotePath, historyRoot, logPath, cancellationToken);
+                    await DeleteRemoteAsync(operation, session, remotePath, historyRoot, logPath, token);
                     break;
                 case SyncOperationKind.Skip:
                     break;
@@ -54,7 +61,50 @@ public sealed class SyncExecutor
                     throw new ArgumentOutOfRangeException(nameof(operation.Kind), operation.Kind, "Unsupported sync operation.");
             }
 
-            completed++;
+            var completedCount = Interlocked.Increment(ref completed);
+            progress?.Report(new SyncProgress
+            {
+                Phase = $"Syncing ({completedCount}/{operations.Count})",
+                Detail = operation.RelativePath,
+                Completed = completedCount,
+                Total = operations.Count
+            });
+        });
+    }
+
+    public async Task ExecuteOperationAsync(
+        SyncOperation operation,
+        WorkSession session,
+        string historyRoot,
+        string logPath,
+        ISyncBackend backend,
+        IProgress<SyncProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var remotePath = PathSafety.CombineRootAndRelative(session.RemoteRoot, operation.RelativePath);
+        var localPath = PathSafety.CombineRootAndRelative(session.LocalRoot, operation.RelativePath);
+
+        progress?.Report(new SyncProgress
+        {
+            Kind = SyncProgressKind.Modification,
+            Phase = operation.Kind == SyncOperationKind.DeleteRemote ? "Deleting remote file" : "Copying/updating remote file",
+            Detail = operation.RelativePath
+        });
+
+        switch (operation.Kind)
+        {
+            case SyncOperationKind.UploadNew:
+            case SyncOperationKind.OverwriteRemote:
+                await UploadWithBackendAsync(operation, session, localPath, remotePath, historyRoot, logPath, backend, cancellationToken);
+                break;
+            case SyncOperationKind.DeleteRemote:
+                await DeleteRemoteWithBackendAsync(operation, session, remotePath, historyRoot, logPath, backend, cancellationToken);
+                break;
+            case SyncOperationKind.Skip:
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(operation.Kind), operation.Kind, "Unsupported sync operation.");
         }
     }
 
@@ -72,27 +122,39 @@ public sealed class SyncExecutor
                 && operation.Kind is SyncOperationKind.OverwriteRemote or SyncOperationKind.DeleteRemote)
             .ToList();
 
+        var started = 0;
         var completed = 0;
-        foreach (var operation in operations)
+        await Parallel.ForEachAsync(operations, new ParallelOptions
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            MaxDegreeOfParallelism = MaxConcurrentFileOperations,
+            CancellationToken = cancellationToken
+        }, async (operation, token) =>
+        {
+            var startedCount = Interlocked.Increment(ref started);
             var remotePath = PathSafety.CombineRootAndRelative(session.RemoteRoot, operation.RelativePath);
             progress?.Report(new SyncProgress
             {
-                Phase = $"Backing up remote changes ({completed + 1}/{operations.Count})",
+                Phase = $"Backing up remote changes ({Volatile.Read(ref completed)}/{operations.Count} complete, {startedCount} started)",
                 Detail = operation.RelativePath,
-                Completed = completed,
+                Completed = Volatile.Read(ref completed),
                 Total = operations.Count
             });
 
             if (File.Exists(remotePath))
             {
                 var bucket = operation.Kind == SyncOperationKind.DeleteRemote ? "deleted" : "overwritten";
-                await BackupRemoteFileAsync(session, remotePath, operation.RelativePath, historyRoot, bucket, logPath, cancellationToken);
+                await BackupRemoteFileAsync(session, remotePath, operation.RelativePath, historyRoot, bucket, logPath, token);
             }
 
-            completed++;
-        }
+            var completedCount = Interlocked.Increment(ref completed);
+            progress?.Report(new SyncProgress
+            {
+                Phase = $"Backing up remote changes ({completedCount}/{operations.Count})",
+                Detail = operation.RelativePath,
+                Completed = completedCount,
+                Total = operations.Count
+            });
+        });
     }
 
     private async Task UploadAsync(
@@ -127,6 +189,34 @@ public sealed class SyncExecutor
         await _logService.AppendAsync(logPath, $"Uploaded: {operation.RelativePath}", cancellationToken);
     }
 
+    private async Task UploadWithBackendAsync(
+        SyncOperation operation,
+        WorkSession session,
+        string localPath,
+        string remotePath,
+        string historyRoot,
+        string logPath,
+        ISyncBackend backend,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(localPath))
+        {
+            throw new FileNotFoundException("Local file disappeared before upload.", localPath);
+        }
+
+        PathSafety.EnsureInsideRoot(session.LocalRoot, localPath, "read local file");
+        PathSafety.EnsureInsideRoot(session.RemoteRoot, remotePath, "write remote file");
+
+        if (File.Exists(remotePath))
+        {
+            await BackupRemoteFileAsync(session, remotePath, operation.RelativePath, historyRoot, "overwritten", logPath, cancellationToken);
+        }
+
+        await backend.CopyFileAsync(localPath, remotePath, new SyncBackendOptions { LogPath = logPath }, cancellationToken);
+        await BackupLocalUploadedFileAsync(session, localPath, operation.RelativePath, historyRoot, "uploaded", logPath, cancellationToken);
+        await _logService.AppendAsync(logPath, $"Uploaded: {operation.RelativePath}", cancellationToken);
+    }
+
     private async Task DeleteRemoteAsync(
         SyncOperation operation,
         WorkSession session,
@@ -144,6 +234,27 @@ public sealed class SyncExecutor
 
         await BackupRemoteFileAsync(session, remotePath, operation.RelativePath, historyRoot, "deleted", logPath, cancellationToken);
         File.Delete(remotePath);
+        await _logService.AppendAsync(logPath, $"Deleted remote: {operation.RelativePath}", cancellationToken);
+    }
+
+    private async Task DeleteRemoteWithBackendAsync(
+        SyncOperation operation,
+        WorkSession session,
+        string remotePath,
+        string historyRoot,
+        string logPath,
+        ISyncBackend backend,
+        CancellationToken cancellationToken)
+    {
+        PathSafety.EnsureInsideRoot(session.RemoteRoot, remotePath, "delete remote file");
+        if (!File.Exists(remotePath))
+        {
+            await _logService.AppendAsync(logPath, $"Remote already absent: {operation.RelativePath}", cancellationToken);
+            return;
+        }
+
+        await BackupRemoteFileAsync(session, remotePath, operation.RelativePath, historyRoot, "deleted", logPath, cancellationToken);
+        await backend.DeleteFileAsync(remotePath, new SyncBackendOptions { LogPath = logPath }, cancellationToken);
         await _logService.AppendAsync(logPath, $"Deleted remote: {operation.RelativePath}", cancellationToken);
     }
 

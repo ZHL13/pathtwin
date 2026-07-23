@@ -22,10 +22,12 @@ public sealed class MainWindowViewModel : ViewModelBase
     private MainViewState _stateBeforeSettings = MainViewState.Setup;
     private bool _isSettingsOpen;
     private bool _isBusy;
-    private string _statusText = "Loading";
-    private string _statusTextBeforeSettings = "Loading";
+    private bool _isProfileLoading = true;
+    private string _statusText = "Loading profile";
+    private string _statusTextBeforeSettings = "Loading profile";
     private string _currentOperation = string.Empty;
     private string _progressDetail = string.Empty;
+    private string _syncToolText = string.Empty;
     private int _progressCompleted;
     private int _progressTotal;
     private bool _isProgressIndeterminate = true;
@@ -34,6 +36,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     private string _historyRoot = string.Empty;
     private string _logRoot = string.Empty;
     private string _rclonePath = string.Empty;
+    private bool _useRclone = true;
+    private ComparisonMode _comparisonMode = ComparisonMode.Hybrid;
     private bool _preserveDirectorySkeleton = true;
     private int _skeletonDepth = 2;
     private int _historyRetentionDays = 7;
@@ -46,6 +50,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private bool _startOnLogon = true;
     private bool _singleInstanceMode = true;
     private WorkSession? _activeSession;
+    private PreviousSessionStatus? _previousSessionProblem;
 
     public MainWindowViewModel(
         string appName,
@@ -64,18 +69,20 @@ public sealed class MainWindowViewModel : ViewModelBase
         _directoryTreeService = directoryTreeService;
         _sessionService = sessionService;
 
-        SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync, () => !IsBusy);
-        CancelSettingsCommand = new RelayCommand(CancelSettings, () => !IsBusy);
-        OpenSettingsCommand = new RelayCommand(OpenSettings, () => !IsBusy);
+        SaveSettingsCommand = new AsyncRelayCommand(SaveSettingsAsync, () => !IsBusy && !IsProfileLoading);
+        CancelSettingsCommand = new RelayCommand(CancelSettings, () => !IsBusy && !IsProfileLoading);
+        OpenSettingsCommand = new RelayCommand(OpenSettings, () => !IsBusy && !IsProfileLoading);
         LoadTreeCommand = new AsyncRelayCommand(LoadTreeAsync, () => !IsBusy && IsConfigured);
         DryRunPullCommand = new AsyncRelayCommand(DryRunPullAsync, () => !IsBusy && IsConfigured && SelectedPaths.Count > 0);
-        StartSessionCommand = new AsyncRelayCommand(StartSessionAsync, () => !IsBusy && IsConfigured && SelectedPaths.Count > 0);
+        StartSessionCommand = new AsyncRelayCommand(StartSessionAsync, () => !IsBusy && IsConfigured && SelectedPaths.Count > 0 && !HasPreviousSessionProblem);
+        ForceStartSessionCommand = new AsyncRelayCommand(ForceStartSessionAsync, () => !IsBusy && IsConfigured && SelectedPaths.Count > 0 && HasPreviousSessionProblem);
         AddFolderCommand = new AsyncRelayCommand(BeginAddFolderAsync, () => !IsBusy && ActiveSession is not null);
         ResumeSyncCommand = new AsyncRelayCommand(ResumeSyncAsync, () => !IsBusy && ActiveSession is not null && GetNewSelectedPaths().Count > 0);
         CancelAddFolderCommand = new RelayCommand(CancelAddFolder, () => !IsBusy && ActiveSession is not null);
         EndSessionCommand = new AsyncRelayCommand(EndSessionAsync, () => !IsBusy && ActiveSession is not null);
         OpenLocalRootCommand = new RelayCommand(() => _shellService.OpenFolder(LocalRoot), () => !string.IsNullOrWhiteSpace(LocalRoot));
         OpenLogFolderCommand = new RelayCommand(() => _shellService.OpenFolder(LogRoot), () => !string.IsNullOrWhiteSpace(LogRoot));
+        OpenPreviousSessionLogCommand = new RelayCommand(OpenPreviousSessionLog, () => HasPreviousSessionProblem);
         CreateTaskCommand = new AsyncRelayCommand(CreateOrUpdateTaskAsync, () => !IsBusy && IsConfigured && EnableAutomaticStartup);
         DeleteTaskCommand = new AsyncRelayCommand(DeleteTaskAsync, () => !IsBusy);
         TestTaskCommand = new AsyncRelayCommand(TestTaskAsync, () => !IsBusy);
@@ -85,6 +92,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ObservableCollection<DirectoryNodeViewModel> DirectoryTree { get; } = [];
     public ObservableCollection<string> SelectedPaths { get; } = [];
     public ObservableCollection<string> ActivityLines { get; } = [];
+    public ObservableCollection<string> ComparisonLines { get; } = [];
+    public ObservableCollection<string> ModificationLines { get; } = [];
     public ObservableCollection<ErrorReportItem> ErrorItems { get; } = [];
     public ObservableCollection<string> ActiveSessionPaths { get; } = [];
 
@@ -94,12 +103,14 @@ public sealed class MainWindowViewModel : ViewModelBase
     public AsyncRelayCommand LoadTreeCommand { get; }
     public AsyncRelayCommand DryRunPullCommand { get; }
     public AsyncRelayCommand StartSessionCommand { get; }
+    public AsyncRelayCommand ForceStartSessionCommand { get; }
     public AsyncRelayCommand AddFolderCommand { get; }
     public AsyncRelayCommand ResumeSyncCommand { get; }
     public RelayCommand CancelAddFolderCommand { get; }
     public AsyncRelayCommand EndSessionCommand { get; }
     public RelayCommand OpenLocalRootCommand { get; }
     public RelayCommand OpenLogFolderCommand { get; }
+    public RelayCommand OpenPreviousSessionLogCommand { get; }
     public AsyncRelayCommand CreateTaskCommand { get; }
     public AsyncRelayCommand DeleteTaskCommand { get; }
     public AsyncRelayCommand TestTaskCommand { get; }
@@ -113,6 +124,37 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public Func<ErrorReport, Task>? ShowErrorAsync { get; set; }
     public event Action? RequestExit;
+
+    public ExitConfirmationInfo GetExitConfirmationInfo()
+    {
+        var state = State switch
+        {
+            MainViewState.SyncRunning => "Synchronization is running",
+            MainViewState.SessionActive => "A work session is active",
+            MainViewState.AddFolder => "Adding folders to an active session",
+            MainViewState.Setup => "Profile setup",
+            MainViewState.Error => "Error or conflict review",
+            _ => "Ready"
+        };
+        var operation = State == MainViewState.SyncRunning && !string.IsNullOrWhiteSpace(CurrentOperation)
+            ? CurrentOperation
+            : StatusText;
+        var warning = State switch
+        {
+            MainViewState.SyncRunning => "A file scan, copy, deletion, or history backup may be in progress. Force Exit stops PathTwin immediately. The session may be recorded as unfinished and will require recovery on the next launch.",
+            MainViewState.SessionActive or MainViewState.AddFolder => "This work session has not been ended. Local changes may not have been pushed to the remote folder. Force Exit leaves the session unfinished so it can be reviewed on the next launch.",
+            MainViewState.Setup => "Unsaved profile edits will be discarded.",
+            MainViewState.Error => "The current error or conflict review will be closed. Resolve it before the next sync when possible.",
+            _ => "PathTwin is not synchronizing. Force Exit closes the application now."
+        };
+
+        return new ExitConfirmationInfo
+        {
+            State = state,
+            CurrentOperation = string.IsNullOrWhiteSpace(operation) ? "No active operation" : operation,
+            Warning = warning
+        };
+    }
 
     public WorkSession? ActiveSession
     {
@@ -131,6 +173,66 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public string ActiveSessionId => ActiveSession?.SessionId ?? string.Empty;
     public string ActiveSessionStartedAt => ActiveSession?.StartedAt.ToString("yyyy-MM-dd HH:mm:ss") ?? string.Empty;
+
+    public bool HasPreviousSessionProblem => _previousSessionProblem is not null
+        && !SessionStatusService.IsPreviousSessionSafeToClean(_previousSessionProblem);
+
+    public string PreviousSessionProblemTitle => _previousSessionProblem is null
+        ? string.Empty
+        : $"Previous session {_previousSessionProblem.SessionId} did not complete";
+
+    public string PreviousSessionProblemDetails
+    {
+        get
+        {
+            if (_previousSessionProblem is null)
+            {
+                return string.Empty;
+            }
+
+            var lines = new List<string>
+            {
+                $"Status: {_previousSessionProblem.Status}",
+                $"Started: {_previousSessionProblem.StartedAt.LocalDateTime:yyyy-MM-dd HH:mm:ss}"
+            };
+
+            if (!string.IsNullOrWhiteSpace(_previousSessionProblem.FailurePhase))
+            {
+                lines.Add($"Problem occurred during: {_previousSessionProblem.FailurePhase}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(_previousSessionProblem.FailureDetails))
+            {
+                lines.Add($"Details: {_previousSessionProblem.FailureDetails}");
+            }
+            else
+            {
+                lines.Add("No detailed error was saved. The application may have been closed before the session completed.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(_previousSessionProblem.LastRecordedActivity))
+            {
+                lines.Add($"Last recorded activity: {_previousSessionProblem.LastRecordedActivity}");
+            }
+
+            return string.Join(Environment.NewLine, lines);
+        }
+    }
+
+    private PreviousSessionStatus? PreviousSessionProblem
+    {
+        get => _previousSessionProblem;
+        set
+        {
+            if (SetProperty(ref _previousSessionProblem, value))
+            {
+                OnPropertyChanged(nameof(HasPreviousSessionProblem));
+                OnPropertyChanged(nameof(PreviousSessionProblemTitle));
+                OnPropertyChanged(nameof(PreviousSessionProblemDetails));
+                RaiseCommands();
+            }
+        }
+    }
 
     private void RefreshActiveSessionPaths()
     {
@@ -166,7 +268,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public bool IsErrorVisible => State == MainViewState.Error && !_isSettingsOpen;
     public bool IsSettingsButtonVisible =>
         (State == MainViewState.Ready || State == MainViewState.SessionActive || State == MainViewState.Error)
-        && !_isSettingsOpen;
+        && !_isSettingsOpen
+        && !IsProfileLoading;
     public string SettingsPanelTitle => State == MainViewState.Setup ? "Profile Setup" : "Edit Profile";
 
     public bool IsBusy
@@ -176,6 +279,19 @@ public sealed class MainWindowViewModel : ViewModelBase
         {
             if (SetProperty(ref _isBusy, value))
             {
+                RaiseCommands();
+            }
+        }
+    }
+
+    public bool IsProfileLoading
+    {
+        get => _isProfileLoading;
+        private set
+        {
+            if (SetProperty(ref _isProfileLoading, value))
+            {
+                NotifyViewVisibilityChanged();
                 RaiseCommands();
             }
         }
@@ -197,6 +313,12 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         get => _progressDetail;
         private set => SetProperty(ref _progressDetail, value);
+    }
+
+    public string SyncToolText
+    {
+        get => _syncToolText;
+        private set => SetProperty(ref _syncToolText, value);
     }
 
     public int ProgressCompleted
@@ -252,6 +374,20 @@ public sealed class MainWindowViewModel : ViewModelBase
         get => _rclonePath;
         set => SetProperty(ref _rclonePath, value);
     }
+
+    public bool UseRclone
+    {
+        get => _useRclone;
+        set => SetProperty(ref _useRclone, value);
+    }
+
+    public ComparisonMode ComparisonMode
+    {
+        get => _comparisonMode;
+        set => SetProperty(ref _comparisonMode, value);
+    }
+
+    public IReadOnlyList<ComparisonMode> ComparisonModes { get; } = Enum.GetValues<ComparisonMode>();
 
     public bool PreserveDirectorySkeleton
     {
@@ -333,14 +469,20 @@ public sealed class MainWindowViewModel : ViewModelBase
             LoadProfileIntoProperties(_config.ActiveProfile);
             State = IsConfigured ? MainViewState.Ready : MainViewState.Setup;
             StatusText = IsConfigured ? "Ready" : "Profile setup required";
+            IsProfileLoading = false;
             if (IsConfigured)
             {
+                await RefreshPreviousSessionProblemAsync();
                 await LoadTreeAsync();
             }
         }
         catch (Exception exception)
         {
             await HandleExceptionAsync(exception, "Initialization failed");
+        }
+        finally
+        {
+            IsProfileLoading = false;
         }
     }
 
@@ -406,6 +548,7 @@ public sealed class MainWindowViewModel : ViewModelBase
                 : "Settings saved.");
             if (nextState == MainViewState.Ready)
             {
+                await RefreshPreviousSessionProblemAsync();
                 await LoadTreeAsync();
             }
         }
@@ -449,20 +592,9 @@ public sealed class MainWindowViewModel : ViewModelBase
             return true;
         }
 
-        ProgressDetail = "";
-        ProgressCompleted = 0;
-        ProgressTotal = 0;
-        IsProgressIndeterminate = true;
+        var progress = BeginSyncProgress();
 
-        var progress = new Progress<SyncProgress>(p =>
-        {
-            CurrentOperation = p.Phase;
-            ProgressDetail = p.Detail;
-            ProgressCompleted = p.Completed;
-            ProgressTotal = p.Total;
-            IsProgressIndeterminate = p.IsIndeterminate;
-        });
-
+        SyncToolText = FormatSyncToolText(_sessionService.GetSyncBackendName(originalProfile));
         var result = await _sessionService.EndAsync(ActiveSession, originalProfile, progress);
         if (!result.Succeeded)
         {
@@ -544,7 +676,9 @@ public sealed class MainWindowViewModel : ViewModelBase
             CurrentOperation = "Loading remote directory tree";
             await LoadDirectoryTreeForSelectionAsync(_config.ActiveProfile.LastSelectedPaths, []);
 
-            StatusText = $"Loaded {DirectoryTree.Count} top-level folders";
+            StatusText = HasPreviousSessionProblem
+                ? "Previous session needs recovery"
+                : $"Loaded {DirectoryTree.Count} top-level folders";
             AddActivity($"Loaded remote tree from {RemoteRoot}.");
             RefreshSelectedPaths();
         }
@@ -581,33 +715,35 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private async Task StartSessionAsync()
+    private Task StartSessionAsync() => StartSessionAsync(ignorePreviousSessionStatus: false);
+
+    private Task ForceStartSessionAsync() => StartSessionAsync(ignorePreviousSessionStatus: true);
+
+    private async Task StartSessionAsync(bool ignorePreviousSessionStatus)
     {
         try
         {
             IsBusy = true;
             State = MainViewState.SyncRunning;
-            CurrentOperation = "Starting work session";
-            ProgressDetail = "";
-            ProgressCompleted = 0;
-            ProgressTotal = 0;
-            IsProgressIndeterminate = true;
-
-            var progress = new Progress<SyncProgress>(p =>
-            {
-                CurrentOperation = p.Phase;
-                ProgressDetail = p.Detail;
-                ProgressCompleted = p.Completed;
-                ProgressTotal = p.Total;
-                IsProgressIndeterminate = p.IsIndeterminate;
-            });
+            CurrentOperation = ignorePreviousSessionStatus
+                ? "Ignoring previous session status and starting work session"
+                : "Starting work session";
+            var progress = BeginSyncProgress();
 
             var profile = CaptureProfile();
-            var result = await _sessionService.StartAsync(profile, SelectedPaths.ToArray(), progress);
+            SyncToolText = FormatSyncToolText(_sessionService.GetSyncBackendName(profile));
+            var result = await _sessionService.StartAsync(
+                profile,
+                SelectedPaths.ToArray(),
+                progress,
+                ignorePreviousSessionStatus: ignorePreviousSessionStatus);
             ActiveSession = result.Session;
+            PreviousSessionProblem = null;
             State = MainViewState.SessionActive;
             StatusText = result.Message;
-            AddActivity(result.Message);
+            AddActivity(ignorePreviousSessionStatus
+                ? $"Previous session status ignored. {result.Message}"
+                : result.Message);
 
             // Remember selections for next time
             _config.ActiveProfile.LastSelectedPaths = SelectedPaths.ToList();
@@ -671,21 +807,10 @@ public sealed class MainWindowViewModel : ViewModelBase
             IsBusy = true;
             State = MainViewState.SyncRunning;
             CurrentOperation = "Resuming sync";
-            ProgressDetail = "";
-            ProgressCompleted = 0;
-            ProgressTotal = 0;
-            IsProgressIndeterminate = true;
-
-            var progress = new Progress<SyncProgress>(p =>
-            {
-                CurrentOperation = p.Phase;
-                ProgressDetail = p.Detail;
-                ProgressCompleted = p.Completed;
-                ProgressTotal = p.Total;
-                IsProgressIndeterminate = p.IsIndeterminate;
-            });
+            var progress = BeginSyncProgress();
 
             var profile = CaptureProfile();
+            SyncToolText = FormatSyncToolText(_sessionService.GetSyncBackendName(profile));
             var result = await _sessionService.ResumeWithAdditionalFoldersAsync(ActiveSession, profile, SelectedPaths.ToArray(), progress);
             RefreshActiveSessionPaths();
             State = MainViewState.SessionActive;
@@ -728,21 +853,10 @@ public sealed class MainWindowViewModel : ViewModelBase
             IsBusy = true;
             State = MainViewState.SyncRunning;
             CurrentOperation = "Ending work session";
-            ProgressDetail = "";
-            ProgressCompleted = 0;
-            ProgressTotal = 0;
-            IsProgressIndeterminate = true;
-
-            var progress = new Progress<SyncProgress>(p =>
-            {
-                CurrentOperation = p.Phase;
-                ProgressDetail = p.Detail;
-                ProgressCompleted = p.Completed;
-                ProgressTotal = p.Total;
-                IsProgressIndeterminate = p.IsIndeterminate;
-            });
+            var progress = BeginSyncProgress();
 
             var profile = CaptureProfile();
+            SyncToolText = FormatSyncToolText(_sessionService.GetSyncBackendName(profile));
             var result = await _sessionService.EndAsync(ActiveSession, profile, progress);
             if (!result.Succeeded)
             {
@@ -786,6 +900,35 @@ public sealed class MainWindowViewModel : ViewModelBase
             CurrentOperation = string.Empty;
             IsBusy = false;
         }
+    }
+
+    private async Task RefreshPreviousSessionProblemAsync()
+    {
+        if (!IsConfigured)
+        {
+            PreviousSessionProblem = null;
+            return;
+        }
+
+        var previousSession = await _sessionService.GetLatestPreviousSessionStatusAsync(LocalRoot);
+        PreviousSessionProblem = SessionStatusService.IsPreviousSessionSafeToClean(previousSession)
+            ? null
+            : previousSession;
+
+        if (HasPreviousSessionProblem)
+        {
+            StatusText = "Previous session needs recovery";
+            AddActivity($"Previous session {_previousSessionProblem!.SessionId} is {_previousSessionProblem.Status}.");
+        }
+    }
+
+    private void OpenPreviousSessionLog()
+    {
+        var logPath = _previousSessionProblem?.AppLogPath;
+        var logFolder = string.IsNullOrWhiteSpace(logPath)
+            ? LogRoot
+            : Path.GetDirectoryName(logPath) ?? LogRoot;
+        _shellService.OpenFolder(logFolder);
     }
 
     private async Task CreateOrUpdateTaskAsync()
@@ -870,6 +1013,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         profile.HistoryRoot = HistoryRoot.Trim();
         profile.LogRoot = LogRoot.Trim();
         profile.RclonePath = RclonePath.Trim();
+        profile.UseRclone = UseRclone;
+        profile.ComparisonMode = ComparisonMode;
         profile.PreserveDirectorySkeleton = PreserveDirectorySkeleton;
         profile.SkeletonDepth = SkeletonDepth;
         profile.HistoryRetentionDays = HistoryRetentionDays;
@@ -899,6 +1044,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         target.HistoryRoot = source.HistoryRoot;
         target.LogRoot = source.LogRoot;
         target.RclonePath = source.RclonePath;
+        target.UseRclone = source.UseRclone;
+        target.ComparisonMode = source.ComparisonMode;
         target.PreserveDirectorySkeleton = source.PreserveDirectorySkeleton;
         target.SkeletonDepth = source.SkeletonDepth;
         target.PullMode = source.PullMode;
@@ -921,6 +1068,8 @@ public sealed class MainWindowViewModel : ViewModelBase
             || !SameSetting(oldProfile.HistoryRoot, newProfile.HistoryRoot)
             || !SameSetting(oldProfile.LogRoot, newProfile.LogRoot)
             || !SameSetting(oldProfile.RclonePath, newProfile.RclonePath)
+            || oldProfile.UseRclone != newProfile.UseRclone
+            || oldProfile.ComparisonMode != newProfile.ComparisonMode
             || oldProfile.PreserveDirectorySkeleton != newProfile.PreserveDirectorySkeleton
             || oldProfile.SkeletonDepth != newProfile.SkeletonDepth
             || oldProfile.PullMode != newProfile.PullMode
@@ -931,6 +1080,59 @@ public sealed class MainWindowViewModel : ViewModelBase
     private static bool SameSetting(string left, string right)
         => string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
 
+    private static string FormatSyncToolText(string backendName)
+        => backendName switch
+        {
+            "rclone" => "Sync tool: rclone",
+            "native-file-system" => "Sync tool: built-in file system",
+            _ => $"Sync tool: {backendName}"
+        };
+
+    private IProgress<SyncProgress> BeginSyncProgress()
+    {
+        ProgressDetail = "";
+        ProgressCompleted = 0;
+        ProgressTotal = 0;
+        IsProgressIndeterminate = true;
+        ComparisonLines.Clear();
+        ModificationLines.Clear();
+
+        return new Progress<SyncProgress>(p =>
+        {
+            CurrentOperation = p.Phase;
+            ProgressDetail = p.Detail;
+            ProgressCompleted = p.Completed;
+            ProgressTotal = p.Total;
+            IsProgressIndeterminate = p.IsIndeterminate;
+
+            switch (p.Kind)
+            {
+                case SyncProgressKind.Comparison:
+                    AddSyncLine(ComparisonLines, p.Phase, p.Detail, includePhase: false);
+                    break;
+                case SyncProgressKind.Modification:
+                    AddSyncLine(ModificationLines, p.Phase, p.Detail, includePhase: true);
+                    break;
+            }
+        });
+    }
+
+    private static void AddSyncLine(ObservableCollection<string> target, string phase, string detail, bool includePhase)
+    {
+        if (string.IsNullOrWhiteSpace(detail) || detail == "Scan complete")
+        {
+            return;
+        }
+
+        const int maxLines = 300;
+        if (target.Count >= maxLines)
+        {
+            target.RemoveAt(0);
+        }
+
+        target.Add(includePhase ? $"{phase}: {detail}" : detail);
+    }
+
     private void LoadProfileIntoProperties(ProfileConfig profile)
     {
         RemoteRoot = profile.RemoteRoot;
@@ -938,6 +1140,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         HistoryRoot = profile.HistoryRoot;
         LogRoot = profile.LogRoot;
         RclonePath = profile.RclonePath;
+        UseRclone = profile.UseRclone;
+        ComparisonMode = profile.ComparisonMode;
         PreserveDirectorySkeleton = profile.PreserveDirectorySkeleton;
         SkeletonDepth = profile.SkeletonDepth;
         HistoryRetentionDays = profile.HistoryRetentionDays;
@@ -1073,12 +1277,14 @@ public sealed class MainWindowViewModel : ViewModelBase
         LoadTreeCommand.RaiseCanExecuteChanged();
         DryRunPullCommand.RaiseCanExecuteChanged();
         StartSessionCommand.RaiseCanExecuteChanged();
+        ForceStartSessionCommand.RaiseCanExecuteChanged();
         AddFolderCommand.RaiseCanExecuteChanged();
         ResumeSyncCommand.RaiseCanExecuteChanged();
         CancelAddFolderCommand.RaiseCanExecuteChanged();
         EndSessionCommand.RaiseCanExecuteChanged();
         OpenLocalRootCommand.RaiseCanExecuteChanged();
         OpenLogFolderCommand.RaiseCanExecuteChanged();
+        OpenPreviousSessionLogCommand.RaiseCanExecuteChanged();
         CreateTaskCommand.RaiseCanExecuteChanged();
         DeleteTaskCommand.RaiseCanExecuteChanged();
         TestTaskCommand.RaiseCanExecuteChanged();

@@ -79,12 +79,85 @@ public sealed class SessionStatusService
             var startedAt = TryGetDateTimeOffset(root, "StartedAt") ?? fallbackTimestamp;
             var endedAt = TryGetDateTimeOffset(root, "EndedAt");
             var status = NormalizeStatus(TryGetString(root, "Status"), endedAt);
+            var appLogPath = TryGetString(root, "AppLogPath");
+            var failureDetails = TryGetString(root, "FailureDetails");
+            if (string.IsNullOrWhiteSpace(failureDetails))
+            {
+                failureDetails = await TryReadLatestErrorAsync(appLogPath, cancellationToken);
+            }
 
-            return new PreviousSessionStatus(sessionId, status, startedAt, sessionPath);
+            return new PreviousSessionStatus(
+                sessionId,
+                status,
+                startedAt,
+                endedAt,
+                TryGetString(root, "FailurePhase"),
+                failureDetails,
+                TryGetLastEvent(root),
+                appLogPath,
+                sessionPath);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            return new PreviousSessionStatus(fallbackId, Interrupted, fallbackTimestamp, sessionPath);
+            return new PreviousSessionStatus(
+                fallbackId,
+                Interrupted,
+                fallbackTimestamp,
+                null,
+                "Reading session metadata",
+                $"The session record could not be read: {exception.Message}",
+                null,
+                null,
+                sessionPath);
+        }
+    }
+
+    private static string? TryGetLastEvent(JsonElement root)
+    {
+        if (!root.TryGetProperty("Events", out var events) || events.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var item in events.EnumerateArray().Reverse())
+        {
+            var type = TryGetString(item, "Type");
+            if (string.IsNullOrWhiteSpace(type))
+            {
+                continue;
+            }
+
+            var timestamp = TryGetDateTimeOffset(item, "Timestamp");
+            return timestamp.HasValue
+                ? $"{type} at {timestamp.Value.LocalDateTime:yyyy-MM-dd HH:mm:ss}"
+                : type;
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> TryReadLatestErrorAsync(string? appLogPath, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(appLogPath) || !File.Exists(appLogPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var lines = await File.ReadAllLinesAsync(appLogPath, cancellationToken);
+            var errorLine = lines.LastOrDefault(line => line.Contains("ERROR:", StringComparison.Ordinal));
+            if (string.IsNullOrWhiteSpace(errorLine))
+            {
+                return null;
+            }
+
+            var errorIndex = errorLine.IndexOf("ERROR:", StringComparison.Ordinal);
+            return errorLine[(errorIndex + "ERROR:".Length)..].Trim();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 
@@ -115,4 +188,9 @@ public sealed record PreviousSessionStatus(
     string SessionId,
     string Status,
     DateTimeOffset StartedAt,
+    DateTimeOffset? EndedAt,
+    string? FailurePhase,
+    string? FailureDetails,
+    string? LastRecordedActivity,
+    string? AppLogPath,
     string SessionPath);

@@ -9,7 +9,8 @@ public sealed class SyncPlanner
     public SyncPlan CreatePlan(
         IReadOnlyCollection<FileState> baseFiles,
         IReadOnlyCollection<FileState> localFiles,
-        IReadOnlyCollection<FileState> remoteFiles)
+        IReadOnlyCollection<FileState> remoteFiles,
+        ComparisonMode comparisonMode = ComparisonMode.Hybrid)
     {
         var plan = new SyncPlan();
         var baseByPath = baseFiles.ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
@@ -28,9 +29,21 @@ public sealed class SyncPlanner
             localByPath.TryGetValue(relativePath, out var localState);
             remoteByPath.TryGetValue(relativePath, out var remoteState);
 
-            AddDecision(plan, relativePath, baseState, localState, remoteState);
+            AddDecision(plan, relativePath, baseState, localState, remoteState, comparisonMode);
         }
 
+        return plan;
+    }
+
+    public SyncPlan CreatePlanForPath(
+        string relativePath,
+        FileState? baseState,
+        FileState? localState,
+        FileState? remoteState,
+        ComparisonMode comparisonMode = ComparisonMode.Hybrid)
+    {
+        var plan = new SyncPlan();
+        AddDecision(plan, relativePath, baseState, localState, remoteState, comparisonMode);
         return plan;
     }
 
@@ -39,16 +52,17 @@ public sealed class SyncPlanner
         string relativePath,
         FileState? baseState,
         FileState? localState,
-        FileState? remoteState)
+        FileState? remoteState,
+        ComparisonMode comparisonMode)
     {
         if (baseState is null)
         {
-            AddDecisionForNewFile(plan, relativePath, localState, remoteState);
+            AddDecisionForNewFile(plan, relativePath, localState, remoteState, comparisonMode);
             return;
         }
 
-        var localChanged = !AreSame(baseState, localState);
-        var remoteChanged = !AreSame(baseState, remoteState);
+        var localChanged = !AreSame(baseState, localState, comparisonMode);
+        var remoteChanged = !AreSame(baseState, remoteState, comparisonMode);
 
         if (localState is null && remoteState is null)
         {
@@ -82,6 +96,13 @@ public sealed class SyncPlanner
             return;
         }
 
+        if (comparisonMode == ComparisonMode.Hybrid
+            && HaveMatchingHashes(localState, remoteState))
+        {
+            plan.Operations.Add(Skip(relativePath, "Local and remote content matches after hybrid hash comparison."));
+            return;
+        }
+
         if (!localChanged && !remoteChanged)
         {
             plan.Operations.Add(Skip(relativePath, "Unchanged."));
@@ -106,7 +127,7 @@ public sealed class SyncPlanner
             return;
         }
 
-        if (AreSame(localState, remoteState))
+        if (AreSame(localState, remoteState, comparisonMode))
         {
             plan.Operations.Add(Skip(relativePath, "Local and remote independently reached the same content."));
             return;
@@ -119,7 +140,8 @@ public sealed class SyncPlanner
         SyncPlan plan,
         string relativePath,
         FileState? localState,
-        FileState? remoteState)
+        FileState? remoteState,
+        ComparisonMode comparisonMode)
     {
         if (localState is not null && remoteState is null)
         {
@@ -141,7 +163,7 @@ public sealed class SyncPlanner
 
         if (localState is not null && remoteState is not null)
         {
-            if (AreSame(localState, remoteState))
+            if (AreSame(localState, remoteState, comparisonMode))
             {
                 plan.Operations.Add(Skip(relativePath, "New file already matches remote."));
             }
@@ -159,30 +181,36 @@ public sealed class SyncPlanner
         Reason = reason
     };
 
-    private static bool AreSame(FileState? left, FileState? right)
+    public static bool HasMatchingMetadata(FileState? left, FileState? right)
     {
         if (left is null || right is null)
         {
             return left is null && right is null;
         }
 
-        if (left.Size != right.Size)
-        {
-            return false;
-        }
-
-        if ((left.LastWriteTimeUtc - right.LastWriteTimeUtc).Duration() <= TimestampTolerance)
-        {
-            return true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(left.Sha256) && !string.IsNullOrWhiteSpace(right.Sha256))
-        {
-            return string.Equals(left.Sha256, right.Sha256, StringComparison.OrdinalIgnoreCase);
-        }
-
-        return false;
+        return left.Size == right.Size
+            && (left.LastWriteTimeUtc - right.LastWriteTimeUtc).Duration() <= TimestampTolerance;
     }
+
+    private static bool AreSame(FileState? left, FileState? right, ComparisonMode comparisonMode)
+    {
+        if (left is null || right is null)
+        {
+            return left is null && right is null;
+        }
+
+        return comparisonMode switch
+        {
+            ComparisonMode.Fast => HasMatchingMetadata(left, right),
+            ComparisonMode.Content => HaveMatchingHashes(left, right),
+            _ => HasMatchingMetadata(left, right) || HaveMatchingHashes(left, right)
+        };
+    }
+
+    private static bool HaveMatchingHashes(FileState left, FileState right)
+        => !string.IsNullOrWhiteSpace(left.Sha256)
+            && !string.IsNullOrWhiteSpace(right.Sha256)
+            && string.Equals(left.Sha256, right.Sha256, StringComparison.OrdinalIgnoreCase);
 
     private static SyncConflict CreateConflict(
         string relativePath,

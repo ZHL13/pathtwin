@@ -14,6 +14,11 @@ public sealed class SyncBackendFactory
 
     public ISyncBackend Create(ProfileConfig profile)
     {
+        if (!profile.UseRclone)
+        {
+            return new NativeSyncBackend(_logService);
+        }
+
         var rclone = new RcloneBackend(profile.RclonePath, _logService);
         return rclone.IsAvailable ? rclone : new NativeSyncBackend(_logService);
     }

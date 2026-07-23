@@ -73,9 +73,17 @@ public sealed class ErrorReportItem
 
 public sealed class SyncProgress
 {
+    public SyncProgressKind Kind { get; init; } = SyncProgressKind.General;
     public string Phase { get; init; } = string.Empty;
     public string Detail { get; init; } = string.Empty;
     public int Completed { get; init; }
     public int Total { get; init; }
     public bool IsIndeterminate => Total == 0;
+}
+
+public enum SyncProgressKind
+{
+    General,
+    Comparison,
+    Modification
 }

@@ -1,14 +1,26 @@
+using System.Collections.Concurrent;
 using PathTwin.App.Models;
 
 namespace PathTwin.App.Logging;
 
 public sealed class LogService
 {
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> AppendLocks = new(StringComparer.OrdinalIgnoreCase);
+
     public async Task AppendAsync(string logPath, string message, CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(logPath) ?? ".");
-        var line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz}  {message}{Environment.NewLine}";
-        await File.AppendAllTextAsync(logPath, line, cancellationToken);
+        var appendLock = AppendLocks.GetOrAdd(Path.GetFullPath(logPath), static _ => new SemaphoreSlim(1, 1));
+        await appendLock.WaitAsync(cancellationToken);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(logPath) ?? ".");
+            var line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz}  {message}{Environment.NewLine}";
+            await File.AppendAllTextAsync(logPath, line, cancellationToken);
+        }
+        finally
+        {
+            appendLock.Release();
+        }
     }
 
     public async Task WriteSessionHeaderAsync(

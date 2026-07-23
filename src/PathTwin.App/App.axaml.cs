@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using PathTwin.App.Backends;
 using PathTwin.App.Configuration;
 using PathTwin.App.Constants;
@@ -55,8 +56,10 @@ public sealed partial class App : Application
             };
 
             desktop.MainWindow = mainWindow;
-            viewModel.RequestExit += () => desktop.Shutdown();
-            _ = viewModel.InitializeAsync();
+            viewModel.RequestExit += mainWindow.CloseWithoutConfirmation;
+            mainWindow.Opened += (_, _) => Dispatcher.UIThread.Post(
+                () => _ = viewModel.InitializeAsync(),
+                DispatcherPriority.Background);
         }
 
         base.OnFrameworkInitializationCompleted();

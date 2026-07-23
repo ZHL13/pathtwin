@@ -31,7 +31,8 @@ It is not meant to mirror an entire drive. The app is built around a work sessio
 - Three-state checkbox folder selection (checked / unchecked / partial)
 - Configurable shallow local skeleton depth, defaulting to 2
 - Start Work Session pull with real-time progress
-- Start Work safety guard for unfinished previous sessions
+- Start Work safety guard for unfinished previous sessions, with the saved failure phase, error summary, and direct access to the prior session logs
+- Explicit `Ignore Previous Session and Force Sync` action for intentionally starting over after reviewing an unfinished session
 - Unselected stale local cache cleanup sent to the Windows Recycle Bin after skeleton comparison
 - Add Folder / Resume Sync during an active session, with prior selections locked
 - End Work Session push with three-way planning and real-time progress
@@ -45,9 +46,40 @@ It is not meant to mirror an entire drive. The app is built around a work sessio
 - `--auto` argument handling with time-window and reachability checks
 - Auto-startup settings in profile UI
 - Optional rclone executable path, with native file-system fallback
+- Optional rclone-powered remote file scanning (`lsjson`) and transfer, controlled per profile; Fast, Hybrid, and Content comparison semantics are consistent with the built-in backend
+- Built-in file-system synchronization reports throttled progress while it checks large folder trees, including Hybrid hash comparisons and mirror cleanup
+- Closing the app always shows the current workflow state and a force-exit warning; a successful End Work exit remains automatic
+- Per-profile comparison modes: Hybrid (default), Fast metadata, or Content hash
+- Concurrent local/remote comparison with a single transfer queue
+- Active sync header identifies the backend currently in use
 - Application icon (rounded, 1000×1000)
 
 ## Changelog
+
+### v0.1.7
+
+**Sync throughput**
+- End Work now scans selected local and remote folders concurrently. As soon as both states for a file are available and its three-way comparison confirms a change, PathTwin queues that file for transfer.
+- Confirmed file operations and folder transfers use a single queue so they do not compete for the same network bandwidth. A later conflict stops newly queued work, while changes that already started are retained and reported.
+- Pull, selected-folder push, and update-only push skip nested duplicate roots before entering the transfer queue.
+- Each concurrent folder task writes to its own log file, while the session log records task start and completion.
+
+**UI**
+- While a sync is running, the header shows the active sync tool directly to the left of `Logs`.
+- The sync screen separates real-time file comparison and file changes into two scrolling columns.
+- On startup, an unfinished prior session shows its status, last recorded phase, error summary, and a link to its logs. The normal Start action stays protected; an explicit danger action can intentionally ignore that prior status and start a new sync.
+- The built-in file-system backend now keeps the current operation visible while it checks large source and destination trees after file comparison, so Hybrid verification and mirror cleanup do not appear stalled.
+- Native Start and Resume pulls now stream potential file changes into a single transfer worker while the remote file scan is still running. Mirror-only local deletions and empty-directory reconciliation run after that scan completes.
+- rclone Hybrid now lists both sides with rclone metadata, then sends only size or modification-time mismatches to rclone for checksum verification and conditional copy. Mirror-only deletions run after that verification. Content mode uses rclone `--checksum` throughout, including the final selected-folder reconciliation pass.
+- rclone Hybrid streams checksum status and throttled file events to the sync UI. Its empty-directory phase has separate progress, and local or SMB destinations create those directories directly instead of starting one rclone process per directory.
+- The main window renders before the profile is read. `Edit Profile` becomes available once that local configuration load completes.
+- Closing PathTwin opens a state-aware confirmation dialog. During sync it warns that file work may be interrupted; during an active session it warns that local changes may remain unpushed.
+
+**Comparison and rclone**
+- Profiles can explicitly enable or disable rclone. When enabled with a valid executable, PathTwin uses rclone to scan the remote root and to transfer files.
+- `Hybrid` is the default: matching size and modified time are accepted immediately; mismatched local/remote files are hashed before their contents are considered different.
+- `Fast` compares only size and modified time.
+- `Content` compares SHA-256 content hashes and uses rclone `--checksum` for rclone transfers.
 
 ### v0.1.6
 
@@ -186,12 +218,12 @@ rclone's own downloads page describes rclone as a single executable, `rclone.exe
 ## Publish Windows Standalone
 
 ```powershell
-scripts/package-release.ps1 -Version 0.1.6
+scripts/package-release.ps1 -Version 0.1.7
 ```
 
 The release script creates standalone, self-contained executables that do not require adjacent DLL files:
 
-- `artifacts/PathTwin-0.1.6-win-x64.exe`: versioned release executable
+- `artifacts/PathTwin-0.1.7-win-x64.exe`: versioned release executable
 - `artifacts/PathTwin-latest-win-x64.exe`: stable latest executable name
 
 ## License

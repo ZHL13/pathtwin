@@ -11,6 +11,8 @@ public sealed class ProfileConfig
     public string HistoryRoot { get; set; } = string.Empty;
     public string LogRoot { get; set; } = string.Empty;
     public string RclonePath { get; set; } = AppConstants.DefaultRclonePath;
+    public bool UseRclone { get; set; } = true;
+    public ComparisonMode ComparisonMode { get; set; } = ComparisonMode.Hybrid;
     public bool PreserveDirectorySkeleton { get; set; } = true;
     public int SkeletonDepth { get; set; } = 2;
     public PullMode PullMode { get; set; } = PullMode.Mirror;
@@ -38,4 +40,11 @@ public enum PullMode
 public enum PushMode
 {
     SafeMirrorWithBackup
+}
+
+public enum ComparisonMode
+{
+    Hybrid,
+    Fast,
+    Content
 }

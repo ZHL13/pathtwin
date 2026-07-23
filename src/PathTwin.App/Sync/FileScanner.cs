@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Runtime.CompilerServices;
 using PathTwin.App.Constants;
 using PathTwin.App.Models;
 using PathTwin.App.Services;
@@ -15,6 +16,30 @@ public sealed class FileScanner
         CancellationToken cancellationToken = default)
     {
         var states = new Dictionary<string, FileState>(StringComparer.OrdinalIgnoreCase);
+
+        await foreach (var state in ScanFilesAsync(
+            root,
+            selectedRelativePaths,
+            computeHashes,
+            "files",
+            progress,
+            cancellationToken))
+        {
+            states[state.RelativePath] = state;
+        }
+
+        return states.Values.OrderBy(state => state.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    public async IAsyncEnumerable<FileState> ScanFilesAsync(
+        string root,
+        IReadOnlyCollection<string> selectedRelativePaths,
+        bool computeHashes,
+        string comparisonSource,
+        IProgress<SyncProgress>? progress = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var scanRoots = selectedRelativePaths.Count == 0
             ? new[] { string.Empty }
             : selectedRelativePaths;
@@ -38,7 +63,7 @@ public sealed class FileScanner
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var relative = PathSafety.GetRelativePath(root, file);
-                if (states.ContainsKey(relative))
+                if (!seenPaths.Add(relative))
                 {
                     continue;
                 }
@@ -49,24 +74,51 @@ public sealed class FileScanner
                 }
 
                 scanned++;
-                if (progress is not null)
-                {
-                    progress.Report(new SyncProgress { Phase = $"Synchronizing files ({scanned} scanned)", Detail = relative });
-                }
-
                 var info = new FileInfo(file);
-                states[relative] = new FileState
+                var state = new FileState
                 {
                     RelativePath = relative,
                     Size = info.Length,
                     LastWriteTimeUtc = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero),
                     Sha256 = computeHashes ? await ComputeSha256Async(file, cancellationToken) : null
                 };
+
+                progress?.Report(new SyncProgress
+                {
+                    Kind = SyncProgressKind.Comparison,
+                    Phase = $"Comparing {comparisonSource} ({scanned} scanned)",
+                    Detail = relative
+                });
+                yield return state;
             }
         }
 
-        progress?.Report(new SyncProgress { Phase = $"Synchronizing files ({scanned} scanned)", Detail = "done" });
-        return states.Values.OrderBy(state => state.RelativePath, StringComparer.OrdinalIgnoreCase).ToArray();
+        progress?.Report(new SyncProgress
+        {
+            Kind = SyncProgressKind.Comparison,
+            Phase = $"Comparing {comparisonSource} ({scanned} scanned)",
+            Detail = "Scan complete"
+        });
+    }
+
+    public async Task<FileState> EnsureSha256Async(
+        string root,
+        FileState state,
+        CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrWhiteSpace(state.Sha256))
+        {
+            return state;
+        }
+
+        var path = PathSafety.CombineRootAndRelative(root, state.RelativePath);
+        return new FileState
+        {
+            RelativePath = state.RelativePath,
+            Size = state.Size,
+            LastWriteTimeUtc = state.LastWriteTimeUtc,
+            Sha256 = await ComputeSha256Async(path, cancellationToken)
+        };
     }
 
     private static async Task<string> ComputeSha256Async(string path, CancellationToken cancellationToken)
