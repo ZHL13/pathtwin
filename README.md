@@ -1,7 +1,7 @@
 # PathTwin
 
 <p align="center">
-  <img src="icon.png" alt="PathTwin logo" width="120">
+  <img src="src/PathTwin.App/icon.ico" alt="PathTwin logo" width="120">
 </p>
 
 PathTwin is a Windows-first desktop app for selective, session-based folder synchronization.
@@ -183,10 +183,7 @@ src/PathTwin.App/Backends/     rclone/native backend wrappers
 src/PathTwin.App/Sync/         scanning, planning, execution, history cleanup
 src/PathTwin.App/Platform/     shell, single-instance, Task Scheduler helpers
 src/PathTwin.App/Models/       config/session/sync data models
-tools/iconprocessor/           local tool for regenerating app icons
-assets/icon-source.png         original icon source image
-icon.png                       final 1000x1000 transparent PNG icon
-tools/rclone.exe               optional local binary, ignored by Git and not packaged by default
+src/PathTwin.App/icon.ico       embedded Windows application icon
 ```
 
 ## Build

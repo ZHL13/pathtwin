@@ -8,12 +8,7 @@ Official rclone downloads:
 
 ## Development
 
-For local development, either:
-
-- Download rclone and set its path in the app Settings, or
-- Leave it absent and use the native file-system fallback for local/SMB-style paths.
-
-`tools/rclone.exe` remains ignored by Git so developers may keep a local copy there, but official package scripts do not include it.
+For local development, download rclone independently and set its path in the app Settings, or leave it absent and use the native file-system fallback for local/SMB-style paths.
 
 ## Publishing
 
@@ -26,10 +21,6 @@ The release package intentionally excludes rclone:
 
 ## GitHub Notes
 
-Do not commit:
-
-- `tools/rclone.exe`
-- rclone zip files
-- extracted rclone folders
+Do not commit rclone binaries, zip files, or extracted rclone folders.
 
 Release assets should contain PathTwin only. Link users to the official rclone download page instead of bundling `rclone.exe`.

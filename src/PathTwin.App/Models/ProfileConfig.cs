@@ -1,5 +1,3 @@
-using PathTwin.App.Constants;
-
 namespace PathTwin.App.Models;
 
 public sealed class ProfileConfig
@@ -10,8 +8,8 @@ public sealed class ProfileConfig
     public string LocalRoot { get; set; } = string.Empty;
     public string HistoryRoot { get; set; } = string.Empty;
     public string LogRoot { get; set; } = string.Empty;
-    public string RclonePath { get; set; } = AppConstants.DefaultRclonePath;
-    public bool UseRclone { get; set; } = true;
+    public string RclonePath { get; set; } = string.Empty;
+    public bool UseRclone { get; set; }
     public ComparisonMode ComparisonMode { get; set; } = ComparisonMode.Hybrid;
     public bool PreserveDirectorySkeleton { get; set; } = true;
     public int SkeletonDepth { get; set; } = 2;

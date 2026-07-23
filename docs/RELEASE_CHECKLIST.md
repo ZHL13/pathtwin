@@ -14,11 +14,10 @@ Expected ignored local artifacts:
 - `publish/`
 - `bin/`
 - `obj/`
-- `tools/rclone.exe`
 - `*.pdb`
 - logs and temporary files
 
-The repository expects source files, docs, icons, and the icon source to be committed. Build outputs and third-party executables should stay out of Git. GitHub release pages provide source archives automatically, so do not build or upload a separate source zip.
+The repository expects source files, docs, and the embedded application icon to be committed. Build outputs and third-party executables should stay out of Git. GitHub release pages provide source archives automatically, so do not build or upload a separate source zip.
 
 ## Remote Setup
 
@@ -40,7 +39,6 @@ git remote -v
 ```powershell
 dotnet restore src/PathTwin.App/PathTwin.App.csproj
 dotnet build src/PathTwin.App/PathTwin.App.csproj
-dotnet run --project tools/iconprocessor/IconProcessor/IconProcessor.csproj
 ```
 
 ## Publish
@@ -68,4 +66,4 @@ Upload both release assets:
 
 Do not commit `publish/` or `artifacts/`.
 
-Do not upload `tools/rclone.exe`. Link users to https://rclone.org/downloads/ instead.
+Do not upload rclone binaries. Link users to https://rclone.org/downloads/ instead.

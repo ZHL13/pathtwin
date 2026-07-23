@@ -9,8 +9,5 @@ obj/
 artifacts/
 publish/
 TestResults/
-tools/rclone.exe
-tools/rclone-*.zip
-tools/rclone-*/
 *.pdb
 *.cache

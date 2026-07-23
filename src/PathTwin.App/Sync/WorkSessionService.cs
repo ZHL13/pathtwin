@@ -1559,11 +1559,6 @@ public sealed class WorkSessionService
     {
         profile.SkeletonDepth = Math.Max(0, profile.SkeletonDepth);
 
-        if (string.IsNullOrWhiteSpace(profile.RclonePath))
-        {
-            profile.RclonePath = AppConstants.DefaultRclonePath;
-        }
-
         if (!string.IsNullOrWhiteSpace(profile.LocalRoot) && string.IsNullOrWhiteSpace(profile.LogRoot))
         {
             profile.LogRoot = Path.Combine(profile.LocalRoot + AppConstants.LocalMetadataDirName, "logs");
